@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from tqdm import tqdm
 from src.base.engine import BaseEngine
 from src.utils.metrics import masked_mape, masked_rmse
 
@@ -15,7 +16,7 @@ class DCRNN_Engine(BaseEngine):
         train_mape = []
         train_rmse = []
         self._dataloader['train_loader'].shuffle()
-        for X, label in self._dataloader['train_loader'].get_iterator():
+        for X, label in tqdm(self._dataloader['train_loader'].get_iterator(),total = self._dataloader['train_loader'].num_batch, desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
             self._optimizer.zero_grad()
 
             X, label = self._to_device(self._to_tensor([X, label]))
