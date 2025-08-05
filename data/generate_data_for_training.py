@@ -14,6 +14,93 @@ class StandardScaler():
     def inverse_transform(self, data):
         return (data * self.std) + self.mean
 
+def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, add_direction):
+
+    min_lat, max_lat = metadata['Lat'].min(), metadata['Lat'].max()
+    min_lng, max_lng = metadata['Lng'].min(), metadata['Lng'].max()
+
+
+    num_nodes = metadata.shape[0]
+    
+    feature_list = []
+
+    # Initialize feature offset
+    feat_offset = 0
+
+    # Initialize config dictionary
+    metadata_config = {}
+
+    if add_location:
+        locations = metadata[['Lat', 'Lng']].values.reshape(num_nodes, 2)
+        # Normalize latitude and longitude
+        locations = (locations - np.array([min_lat, min_lng])) / np.array([max_lat - min_lat, max_lng - min_lng])
+
+        metadata_config['location'] = {
+            'min_lat': min_lat,
+            'max_lat': max_lat,
+            'min_lng': min_lng,
+            'max_lng': max_lng,
+            'feature_num': 2,
+            'feature_offset': feat_offset,
+            'feature_names': ['Lat', 'Lng'],
+            'feature_type': 'continuous',
+        }
+        feature_list.append(locations)
+        feat_offset += 2
+    
+    if add_road:
+        one_hot_road = pd.get_dummies(metadata['Fwy'], prefix='Road').values.reshape(num_nodes, -1)
+        
+        metadata_config['road'] = {
+            'feature_num': one_hot_road.shape[1],
+            'feature_offset': feat_offset,
+            'feature_names': ['Fwy'],
+            'feature_type': 'categorical',
+        }
+
+        feature_list.append(one_hot_road)
+        feat_offset += one_hot_road.shape[1]
+
+    if add_region:
+        one_hot_region = pd.get_dummies(metadata[['District', 'County']], prefix='Region').values.reshape(num_nodes, -1)
+        metadata_config['region'] = {
+            'feature_num': one_hot_region.shape[1],
+            'feature_offset': feat_offset,
+            'feature_names': ['District', 'County'],
+            'feature_type': 'categorical',
+        }
+        feature_list.append(one_hot_region)
+        feat_offset += one_hot_region.shape[1]
+
+    if add_lanes:
+        lanes = metadata['Lanes'].values.reshape(num_nodes, 1)
+        lanes = lanes / 8
+        metadata_config['lanes'] = {
+            'feature_num': 1,
+            'feature_offset': feat_offset,
+            'feature_names': ['Lanes'],
+            'feature_type': 'continuous',
+            'max_lanes': 8,
+        }
+        feature_list.append(lanes)
+        feat_offset += 1
+
+    if add_direction:
+        one_hot_direction = pd.get_dummies(metadata['Direction'], prefix='Direction').values.reshape(num_nodes, -1)
+        metadata_config['direction'] = {
+            'feature_num': one_hot_direction.shape[1],
+            'feature_offset': feat_offset,
+            'feature_names': ['Direction'],
+            'feature_type': 'categorical',
+        }
+        feature_list.append(one_hot_direction)
+        feat_offset += one_hot_direction.shape[1]
+
+    data = np.concatenate(feature_list, axis=-1).astype(float)
+    
+    return data, metadata_config
+
+
 
 def generate_data_and_idx(df, x_offsets, y_offsets, add_time_of_day, add_day_of_week):
     num_samples, num_nodes = df.shape
@@ -38,21 +125,29 @@ def generate_data_and_idx(df, x_offsets, y_offsets, add_time_of_day, add_day_of_
     idx = np.arange(min_t, max_t, 1)
     return data, idx
 
+def load_metadata(args):
+    metadata = pd.read_csv(args.dataset + '/' + args.dataset + '_meta.csv')
+    metadata = metadata.set_index('ID')
+    return metadata
+
 
 def generate_train_val_test(args):
     years = args.years.split('_')
     df = pd.DataFrame()
     for y in years:
         df_tmp = pd.read_hdf(args.dataset + '/' + args.dataset + '_his_' + y + '.h5')
-        df = df.append(df_tmp)
+        df = pd.concat([df, df_tmp])#df.append(df_tmp)
     print('original data shape:', df.shape)
+
+    metadata_raw = load_metadata(args)
+    metadata, metadata_config = generate_metadata(metadata_raw, True, True, True, True, True)
 
     seq_length_x, seq_length_y = args.seq_length_x, args.seq_length_y
     x_offsets = np.arange(-(seq_length_x - 1), 1, 1)
     y_offsets = np.arange(1, (seq_length_y + 1), 1)
 
     data, idx = generate_data_and_idx(df, x_offsets, y_offsets, args.tod, args.dow)
-    print('final data shape:', data.shape, 'idx shape:', idx.shape)
+    print('final data shape:', data.shape, 'idx shape:', idx.shape, 'metadata featues', metadata.shape[-1])
 
     num_samples = len(idx)
     num_train = round(num_samples * 0.6)
@@ -72,7 +167,7 @@ def generate_train_val_test(args):
     out_dir = args.dataset + '/' + args.years
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
-    np.savez_compressed(os.path.join(out_dir, 'his.npz'), data=data, mean=scaler.mean, std=scaler.std)
+    np.savez_compressed(os.path.join(out_dir, 'his.npz'), data=data, mean=scaler.mean, std=scaler.std, metadata = metadata, metadata_dict=metadata_config)
 
     np.save(os.path.join(out_dir, 'idx_train'), idx_train)
     np.save(os.path.join(out_dir, 'idx_val'), idx_val)

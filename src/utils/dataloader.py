@@ -6,13 +6,15 @@ import threading
 import multiprocessing as mp
 
 class DataLoader(object):
-    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False):
+    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None):
         if pad_last_sample:
             num_padding = (bs - (len(idx) % bs)) % bs
             idx_padding = np.repeat(idx[-1:], num_padding, axis=0)
             idx = np.concatenate([idx, idx_padding], axis=0)
         
         self.data = data
+        self.metadata = metadata
+        self.metadata_dict = metadata_dict
         self.idx = idx
         self.size = len(idx)
         self.bs = bs
@@ -34,7 +36,13 @@ class DataLoader(object):
 
     def write_to_shared_array(self, x, y, idx_ind, start_idx, end_idx):
         for i in range(start_idx, end_idx):
-            x[i] = self.data[idx_ind[i] + self.x_offsets, :, :]
+            tmp = self.data[idx_ind[i] + self.x_offsets, :, :]
+            if self.metadata is not None:
+                tmp = np.concatenate([
+                    tmp, 
+                    np.tile(self.metadata, (self.seq_len, 1, 1))
+                ], axis = -1)
+            x[i] = tmp
             y[i] = self.data[idx_ind[i] + self.y_offsets, :, :1]
 
 
@@ -47,7 +55,7 @@ class DataLoader(object):
                 end_ind = min(self.size, self.bs * (self.current_ind + 1))
                 idx_ind = self.idx[start_ind: end_ind, ...]
 
-                x_shape = (len(idx_ind), self.seq_len, self.data.shape[1], self.data.shape[-1])
+                x_shape = (len(idx_ind), self.seq_len, self.data.shape[1], self.data.shape[-1] if self.metadata is None else self.data.shape[-1] + self.metadata.shape[-1])
                 x_shared = mp.RawArray('f', int(np.prod(x_shape)))
                 x = np.frombuffer(x_shared, dtype='f').reshape(x_shape)
 
@@ -90,14 +98,16 @@ class StandardScaler():
 
 
 def load_dataset(data_path, args, logger):
-    ptr = np.load(os.path.join(data_path, args.years, 'his.npz'))
+    ptr = np.load(os.path.join(data_path, args.years, 'his.npz'), allow_pickle=True)
     logger.info('Data shape: ' + str(ptr['data'].shape))
     
     dataloader = {}
     for cat in ['train', 'val', 'test']:
         idx = np.load(os.path.join(data_path, args.years, 'idx_' + cat + '.npy'))
         dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
-                                                 args.seq_len, args.horizon, args.bs, logger)
+                                                 args.seq_len, args.horizon, args.bs, logger, 
+                                                 metadata = None, #ptr.get('metadata', None), 
+                                                 metadata_dict = ptr.get('metadata_dict', None))
 
     scaler = StandardScaler(mean=ptr['mean'], std=ptr['std'])
     return dataloader, scaler
