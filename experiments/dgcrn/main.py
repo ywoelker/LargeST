@@ -15,6 +15,7 @@ from src.utils.dataloader import load_dataset, load_adj_from_numpy, get_dataset_
 from src.utils.graph_algo import normalize_adj_mx
 from src.utils.metrics import masked_mae
 from src.utils.logging import get_logger
+from src.utils.experiments import get_experiment
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -87,6 +88,7 @@ def main():
                           model=model,
                           dataloader=dataloader,
                           scaler=scaler,
+                          experiment = get_experiment(None),
                           sampler=None,
                           loss_fn=loss_fn,
                           lrate=args.lrate,
