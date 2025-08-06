@@ -61,7 +61,7 @@ class SparsityExperiment(BaseExperiment):
 
             mask_shape = (n_sensors, )
             mask_tensor = torch.rand(mask_shape, dtype=torch.float32, device=device) > self.train_dropout
-            self.train_mask = mask_tensor.shape(1, 1, n_sensors, 1)
+            self.train_mask = mask_tensor.reshape(1, 1, n_sensors, 1)
         else:
             self.train_mask = torch.ones((1, 1, n_sensors, 1), dtype=torch.float32, device=device)   
 
@@ -93,15 +93,19 @@ class SparsityExperiment(BaseExperiment):
             # Randomly mask input features
 
             mask_tensor = self._get_mask(self.input_sparseness, self.input_dropout, X)           
-            X = X * mask_tensor * self.train_mask  # Apply mask to the features
+            X = X * mask_tensor # Apply mask to the features
         
         if self.output_sparseness != 'none' and self.output_dropout > 0:
             # Randomly mask output features
             mask_tensor = self._get_mask(self.output_sparseness, self.output_dropout, label)
-            mask = mask_tensor * self.train_mask
-            # mask_inf = torch.where(mask == 0, -torch.inf, mask)
-            label = torch.where(mask == 0, label_mask_value, label)
+            label = torch.where(mask_tensor == 0, label_mask_value, label)
+        
     
+        if self.train_dropout > 0:
+            X = X * self.train_mask  # Apply train mask to the features
+            label = torch.where(self.train_mask.expand(b,t,n,f) == 0, label_mask_value, label)
+
+
         return X, label
     
     def eval_preprocess(self, X, label, iteration = 0, label_mask_value = -torch.inf):
@@ -125,4 +129,19 @@ class SparsityExperiment(BaseExperiment):
     
 
     
-    
+    def experiment_evaluation_metrics(self, preds, labels, mask_value):
+        
+        additional_metrics = {}
+
+        if self.train_dropout > 0:
+            training_bool_mask = self.train_mask.squeeze().to(torch.bool).to(preds.device)
+            preds = preds[ :, training_bool_mask]
+            labels = labels[ :, training_bool_mask]
+
+            # Compute metrics
+            metric = compute_all_metrics(preds, labels, mask_value)
+            additional_metrics['training_mask'] = metric
+
+        return additional_metrics
+
+

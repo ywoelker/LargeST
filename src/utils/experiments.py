@@ -1,7 +1,8 @@
 from src.base.experiment import BaseExperiment, SparsityExperiment
 
-def get_experiment(experiment_id = None, args = None):
-
+def get_experiment(args):
+    
+    experiment_id = args.experiment_id
 
     if experiment_id is None or experiment_id == '000':
         return BaseExperiment(
