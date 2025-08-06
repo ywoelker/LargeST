@@ -82,7 +82,7 @@ def main():
                         dataloader=dataloader,
                         scaler=scaler,
                         sampler=None,
-                        experiment=get_experiment(None),
+                        experiment=get_experiment(args.experiment_id),
                         loss_fn=loss_fn,
                         lrate=args.lrate,
                         optimizer=optimizer,

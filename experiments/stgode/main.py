@@ -76,7 +76,7 @@ def main():
                         model=model,
                         dataloader=dataloader,
                         scaler=scaler,
-                        experiment = get_experiment(None),
+                        experiment = get_experiment(args.experiment_id),
                         sampler=None,
                         loss_fn=loss_fn,
                         lrate=args.lrate,
