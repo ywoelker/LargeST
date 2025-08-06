@@ -39,7 +39,7 @@ def get_config():
     parser.add_argument('--clip_grad_value', type=float, default=5)
     args = parser.parse_args()
 
-    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), uuid.uuid4[:4])
+    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), str(uuid.uuid4())[-6:])
     logger = get_logger(log_dir, __name__, 'record_s{}.log'.format(args.seed))
     logger.info(args)
     

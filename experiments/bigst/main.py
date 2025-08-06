@@ -52,7 +52,7 @@ def get_config():
     
     args = parser.parse_args()
 
-    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), uuid.uuid4[:4])
+    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), str(uuid.uuid4())[-6:])
     logger = get_logger(log_dir, __name__, 'record_s{}.log'.format(args.seed))
     logger.info(args)
     
@@ -104,7 +104,7 @@ def main():
                         dataloader=dataloader,
                         scaler=scaler,
                         sampler=None,
-                        experiment = get_experiment(args.experiment_id),
+                        experiment = get_experiment(args),
                         loss_fn=loss_fn,
                         lrate=args.lrate,
                         optimizer=optimizer,
