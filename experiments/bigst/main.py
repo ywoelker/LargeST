@@ -9,6 +9,7 @@ import torch
 torch.set_num_threads(3)
 
 from src.models.bigst import BigST, BigSTPreprocess
+from src.base.experiment import BaseExperiment, SparsityExperiment
 from src.engines.bigst_preprocess_engine import BigST_Pre_Engine
 from src.engines.bigst_engine import BigST_Engine
 from src.utils.args import get_public_config
@@ -94,11 +95,26 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate, weight_decay=args.wdecay, eps=1e-8)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[1, 50], gamma=0.5)
 
+    experiment = SparsityExperiment(
+        name='001',
+        description='BigST point wise in&out sparsity',
+        input_sparseness='point',
+        input_dropout=0.8,
+        output_sparseness='none',
+        output_dropout=0,
+        train_dropout=0,
+        seed=args.seed,
+        n_sensors=args.num_nodes,
+        device = device,
+    )
+
+
     engine = BigST_Engine(device=device,
                         model=model,
                         dataloader=dataloader,
                         scaler=scaler,
                         sampler=None,
+                        experiment = experiment,
                         loss_fn=loss_fn,
                         lrate=args.lrate,
                         optimizer=optimizer,

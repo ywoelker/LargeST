@@ -3,12 +3,14 @@ import time
 import torch
 import numpy as np
 from tqdm import tqdm
-from src.utils.metrics import masked_mape
+from src.utils.metrics import masked_mape, masked_mae
 from src.utils.metrics import masked_rmse
 from src.utils.metrics import compute_all_metrics
 
+from src.base.experiment import BaseExperiment
+
 class BaseEngine():
-    def __init__(self, device, model, dataloader, scaler, sampler, loss_fn, lrate, optimizer, \
+    def __init__(self, device, model, dataloader, scaler, sampler, experiment: BaseExperiment, loss_fn, lrate, optimizer, \
                  scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed):
         super().__init__()
         self._device = device
@@ -17,6 +19,7 @@ class BaseEngine():
 
         self._dataloader = dataloader
         self._scaler = scaler
+        self._experiment = experiment
 
         self._loss_fn = loss_fn
         self._lrate = lrate
@@ -31,6 +34,7 @@ class BaseEngine():
         self._logger = logger
         self._seed = seed
 
+        self.label_mask_value = self._scaler.transform(torch.tensor([0]))
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
 
 
@@ -76,6 +80,17 @@ class BaseEngine():
         filename = 'final_model_s{}.pt'.format(self._seed)
         self.model.load_state_dict(torch.load(
             os.path.join(save_path, filename)))   
+        
+
+    def forward(self, X, label, isTrain = False):
+        # TODO: inverse transform of the label after the masking create mean values which are not masked.
+        pred = self.model(X, label)
+        return pred, label, None
+    
+ 
+    def loss(self, pred, label, mask_value, loss_container):
+        loss = self._loss_fn(pred, label, mask_value)
+        return loss
 
 
     def train_batch(self):
@@ -85,14 +100,20 @@ class BaseEngine():
         train_mape = []
         train_rmse = []
         self._dataloader['train_loader'].shuffle()
+
+        
+        print('Check label mask value', self.label_mask_value)
         for X, label in tqdm(self._dataloader['train_loader'].get_iterator(),total = self._dataloader['train_loader'].num_batch, desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
             self._optimizer.zero_grad()
 
             # X (b, t, n, f), label (b, t, n, 1)
             X, label = self._to_device(self._to_tensor([X, label]))
-            pred = self.model(X, label)
-            pred, label = self._inverse_transform([pred, label])
+            X, label = self._experiment.train_preprocess(X, label, label_mask_value = self.label_mask_value)
 
+
+            pred, label, loss_container = self.forward(X, label, isTrain=True)            
+            pred, label = self._inverse_transform([pred, label])
+    
             # handle the precision issue when performing inverse transform to label
             mask_value = torch.tensor(0)
             if label.min() < 1:
@@ -100,7 +121,8 @@ class BaseEngine():
             if self._iter_cnt == 0:
                 print('Check mask value', mask_value)
 
-            loss = self._loss_fn(pred, label, mask_value)
+            loss = self.loss(pred, label, mask_value, loss_container)
+
             mape = masked_mape(pred, label, mask_value).item()
             rmse = masked_rmse(pred, label, mask_value).item()
 
@@ -167,7 +189,9 @@ class BaseEngine():
             for X, label in self._dataloader[mode + '_loader'].get_iterator():
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
-                pred = self.model(X, label)
+                X, label = self._experiment.eval_preprocess(X, label, label_mask_value = self.label_mask_value)
+                
+                pred, label, _ = self.forward(X, label, isTrain=False)
                 pred, label = self._inverse_transform([pred, label])
 
                 preds.append(pred.squeeze(-1).cpu())
@@ -182,7 +206,7 @@ class BaseEngine():
             mask_value = labels.min()
 
         if mode == 'val':
-            mae = self._loss_fn(preds, labels, mask_value).item()
+            mae = masked_mae(preds, labels, mask_value).item()
             mape = masked_mape(preds, labels, mask_value).item()
             rmse = masked_rmse(preds, labels, mask_value).item()
             return mae, mape, rmse
@@ -192,6 +216,9 @@ class BaseEngine():
             test_mape = []
             test_rmse = []
             print('Check mask value', mask_value)
+
+            additional_metrics = {}
+
             for i in range(self.model.horizon):
                 res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value)
                 log = 'Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
@@ -200,5 +227,29 @@ class BaseEngine():
                 test_mape.append(res[1])
                 test_rmse.append(res[2])
 
+                experiment_metrics = self._experiment.experiment_evaluation_metrics(preds[:,i,:], labels[:,i,:], mask_value)
+
+                for e_metric in experiment_metrics:
+                    log = 'Horizon {:d}, {}: MAE: {:.4f}, RMSE: {:.4f}, MAPE: {:.4f}'
+                    self._logger.info(log.format(i + 1, e_metric, experiment_metrics[e_metric][0], \
+                                                 experiment_metrics[e_metric][2], experiment_metrics[e_metric][1]))
+                    
+                    if e_metric not in additional_metrics:
+                        additional_metrics[e_metric] = [[experiment_metrics[e_metric][0]], \
+                                                        [experiment_metrics[e_metric][1]], \
+                                                        [experiment_metrics[e_metric][2]]]
+                    else:
+                        additional_metrics[e_metric][0].append(experiment_metrics[e_metric][0])
+                        additional_metrics[e_metric][1].append(experiment_metrics[e_metric][1])
+                        additional_metrics[e_metric][2].append(experiment_metrics[e_metric][2])
+
+
+
             log = 'Average Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
             self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))
+
+            for e_metric in additional_metrics:
+                log = 'Average {}: MAE: {:.4f}, RMSE: {:.4f}, MAPE: {:.4f}'
+                self._logger.info(log.format(e_metric, np.mean(additional_metrics[e_metric][0]), \
+                                             np.mean(additional_metrics[e_metric][2]), \
+                                             np.mean(additional_metrics[e_metric][1])))
