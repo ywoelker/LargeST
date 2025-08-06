@@ -1,6 +1,8 @@
 import os
 import argparse
 import numpy as np
+import uuid
+from datetime import datetime
 
 import sys
 sys.path.append(os.path.abspath(__file__ + '/../../..'))
@@ -47,7 +49,7 @@ def get_config():
     
     args = parser.parse_args()
 
-    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), uuid.uuid4[:4])
+    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), str(uuid.uuid4())[-6:])
     logger = get_logger(log_dir, __name__, 'record_s{}.log'.format(args.seed))
     logger.info(args)
     
