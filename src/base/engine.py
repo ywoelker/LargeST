@@ -34,7 +34,7 @@ class BaseEngine():
         self._logger = logger
         self._seed = seed
 
-        self.label_mask_value = self._scaler.transform(torch.tensor([0]))
+        self.label_mask_value = self._scaler.transform(torch.tensor([0])).to(self._device)
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
 
 
