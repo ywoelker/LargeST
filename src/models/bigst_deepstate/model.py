@@ -39,7 +39,18 @@ class Model(nn.Module):
         nn.init.xavier_uniform_(self.week_emb_layer)
 
         # embedding layer
-        self.input_emb_layer = nn.Conv2d(seq_num*in_dim, hid_dim, kernel_size=(1, 1), bias=True)
+        self.input_emb_layer_context = nn.Sequential(
+
+            nn.Conv2d(in_dim - 1 ,2* hid_dim, kernel_size=(1, 1), bias=True),
+            nn.ReLU(),
+            nn.Conv2d(2*hid_dim, 2*hid_dim, kernel_size=(1, 1), bias=True),
+            nn.GLU(dim = 1)
+
+        )
+        
+        
+
+        self.input_emb_layer = nn.Conv2d(seq_num * 3, hid_dim, kernel_size=(1, 1), bias=True)
         
         self.W_1 = nn.Conv2d(node_emb_dim+time_emb_dim*2, hid_dim, kernel_size=(1, 1), bias=True)
         self.W_2 = nn.Conv2d(node_emb_dim+time_emb_dim*2, hid_dim, kernel_size=(1, 1), bias=True)
@@ -64,16 +75,22 @@ class Model(nn.Module):
         
         # x: (B, N, T, D)
         B, N, T, D = x.size()
+
+        original_x = x[..., :3] # shape (B, N, T, 3)
+        contextual = x[...,0 ,1:] # shape (B, N, D-1)
         
         time_emb = self.time_emb_layer[(x[:, :, -1, 1]*self.time_num).type(torch.LongTensor)]
         week_emb = self.week_emb_layer[(x[:, :, -1, 2]).type(torch.LongTensor)]
         
         # input embedding
-        x = x.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D*T, N, 1)
+        x = original_x.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D*T, N, 1)
         input_emb = self.input_emb_layer(x)
 
         # node embeddings
-        node_emb = self.node_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
+        # node_emb = self.node_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)#
+        x = contextual.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D-1, N, 1)
+        node_emb = self.input_emb_layer_context(x) # (B, dim, N, 1)
+
 
         # time embeddings
         time_emb = time_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
