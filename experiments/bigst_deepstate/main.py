@@ -10,7 +10,7 @@ sys.path.append(os.path.abspath(__file__ + '/../../..'))
 import torch
 torch.set_num_threads(3)
 
-from src.models.bigst import BigST, BigSTPreprocess
+from src.models.bigst_deepstate import BigST
 from src.base.experiment import BaseExperiment, SparsityExperiment
 from src.engines.bigst_preprocess_engine import BigST_Pre_Engine
 from src.engines.bigst_engine import BigST_Engine
@@ -40,7 +40,6 @@ def set_seed(seed):
 """
 def get_config():
     parser = get_public_config()
-    parser.add_argument('--in_dim', type=int, default=3)
     parser.add_argument('--nhid', type=int, default=32)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
 

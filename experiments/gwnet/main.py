@@ -41,8 +41,7 @@ def get_config():
     parser.add_argument('--clip_grad_value', type=float, default=5)
     args = parser.parse_args()
 
-    folder_name = '{}-{}-{}'.format(args.dataset, args.adj_type, args.adp_adj)
-    log_dir = './experiments/{}/{}/'.format(args.model_name, folder_name)
+    log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), str(uuid.uuid4())[-6:])
     logger = get_logger(log_dir, __name__, 'record_s{}.log'.format(args.seed))
     logger.info(args)
     
@@ -84,7 +83,7 @@ def main():
                         dataloader=dataloader,
                         scaler=scaler,
                         sampler=None,
-                        experiment=get_experiment(args),
+                        experiment=get_experiment(args, node_num),
                         loss_fn=loss_fn,
                         lrate=args.lrate,
                         optimizer=optimizer,

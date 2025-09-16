@@ -40,7 +40,6 @@ def set_seed(seed):
 """
 def get_config():
     parser = get_public_config()
-    parser.add_argument('--num_nodes', type=int, default=3834)
     parser.add_argument('--in_dim', type=int, default=3)
     parser.add_argument('--nhid', type=int, default=32)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
@@ -49,6 +48,8 @@ def get_config():
     parser.add_argument('--wdecay', type=float, default=0.0001)
     parser.add_argument('--dropout', type=float, default=0.3)
     parser.add_argument('--clip_grad_value', type=float, default=5.0)
+
+    parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
     
     args = parser.parse_args()
 
@@ -75,19 +76,19 @@ def main():
 
     model = BigST(
         bigst_args={
-                "num_nodes": args.num_nodes,
+                "num_nodes": node_num,
                 "seq_num": args.seq_len, 
                 "in_dim": args.input_dim,
                 "out_dim": args.horizon,
-                "hid_dim": 32,
+                "hid_dim": 256,
                 "tau" : 0.25,
-                "random_feature_dim": 64,
-                "node_emb_dim": 32,
-                "time_emb_dim": 32,
+                "random_feature_dim": 1024,
+                "node_emb_dim": 256,
+                "time_emb_dim": 256,
                 "use_residual": True,
                 "use_bn": True,
                 "use_long": False,
-                "use_spatial": True,
+                "use_spatial": False,
                 "dropout": 0.3,
                 "supports": args.adjs,
                 "time_of_day_size": 96, 
@@ -104,7 +105,7 @@ def main():
                         dataloader=dataloader,
                         scaler=scaler,
                         sampler=None,
-                        experiment = get_experiment(args),
+                        experiment = get_experiment(args, node_num),
                         loss_fn=loss_fn,
                         lrate=args.lrate,
                         optimizer=optimizer,

@@ -81,7 +81,7 @@ def main():
                           dataloader=dataloader,
                           scaler=scaler,
                           sampler=None,
-                          experiment = get_experiment(args),
+                          experiment = get_experiment(args, node_num),
                           loss_fn=loss_fn,
                           lrate=args.lrate,
                           optimizer=optimizer,

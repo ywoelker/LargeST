@@ -94,7 +94,7 @@ def main():
                         model=model,
                         dataloader=dataloader,
                         scaler=scaler,
-                        experiment = get_experiment(args),
+                        experiment = get_experiment(args, node_num),
                         sampler=None,
                         loss_fn=loss_fn,
                         lrate=args.lrate,
