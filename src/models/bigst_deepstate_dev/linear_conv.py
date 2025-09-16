@@ -12,11 +12,15 @@ def linear_kernel(x, node_vec1, node_vec2):
     node_vec2 = node_vec2.permute(1, 0, 2, 3) # [N, B, 1, r]
     x = x.permute(1, 0, 2, 3) # [N, B, 1, nhid]
     
+    # sum of k_m * v_m
     v2x = torch.einsum("nbhm,nbhd->bhmd", node_vec2, x)
+    # q_t * sum^T_m k_m * v_m
     out1 = torch.einsum("nbhm,bhmd->nbhd", node_vec1, v2x) # [N, B, 1, nhid]
     
     one_matrix = torch.ones([node_vec2.shape[0]]).to(node_vec1.device)
+    # sum over all N the keys = sum of k_m
     node_vec2_sum = torch.einsum("nbhm,n->bhm", node_vec2, one_matrix)
+    # q_t * sum^T_m k_m
     out2 = torch.einsum("nbhm,bhm->nbh", node_vec1, node_vec2_sum) # [N, 1]
 
     out1 = out1.permute(1, 0, 2, 3)  # [B, N, 1, nhid]

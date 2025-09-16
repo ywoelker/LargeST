@@ -31,16 +31,20 @@ class BigST_Engine(BaseEngine):
             mask_value= mask_value
         )
 
+        mean_source_attention = torch.norm(pred_dict['assignment_scores_source'], p = 1)
+        mean_target_attention = torch.norm(pred_dict['assignment_scores_target'], p = 1)
+
         # normalize the deep_node_vector
-        normalized = torch.nn.functional.normalize(pred_dict['deep_node_vec'], dim=-1)
-        scalar_product = torch.einsum('df,ef->de', normalized,normalized) # to avoid memory leak
-        cosine_similarity = torch.mean(1 - scalar_product) # [1]
+        # normalized = torch.nn.functional.normalize(pred_dict['deep_node_vec'], dim=-1)
+        # scalar_product = torch.einsum('df,ef->de', normalized,normalized) # to avoid memory leak
+        # cosine_similarity = torch.mean(1 - scalar_product) # [1]
 
         # print("Cosine Similarity of Deep Node Vector: ", cosine_similarity.detach().item())
 
         # deep state nodes should be spatially coherent
 
-        return loss + .4 * cosine_similarity
+        # return loss #+ 30.0 * cosine_similarity
+        return loss +   .001 * mean_source_attention + .001 * mean_target_attention
         
 
 import torch
@@ -77,4 +81,7 @@ def bigst_loss(prediction, target, node_vec1, node_vec2, supports, use_spatial, 
         s_loss = spatial_loss(node_vec1, node_vec2, supports, edge_indices)
         return masked_mae(prediction, target, mask_value) - 0.3 * s_loss # 源代码：pipline.py line30
     else:
-        return masked_mae(prediction, target, mask_value)
+        masked_mae_loss = masked_mae(prediction, target, mask_value)
+        
+        
+        return masked_mae_loss
