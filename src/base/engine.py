@@ -34,8 +34,11 @@ class BaseEngine():
         self._logger = logger
         self._seed = seed
 
-        self.label_mask_value = self._scaler.transform(torch.tensor([0])).to(self._device)
+        self.label_mask_value = self._scaler.transform(torch.tensor([0])).to(self._device)[0].to(torch.float)
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
+
+        torch.manual_seed(seed)
+        self.base_seeds = torch.randint(0, 10000, (self._max_epochs,)).tolist()
 
 
     def _to_device(self, tensors):
@@ -108,6 +111,8 @@ class BaseEngine():
 
             # X (b, t, n, f), label (b, t, n, 1)
             X, label = self._to_device(self._to_tensor([X, label]))
+            #TODO: The problem is that after the next line this has 9k entries `((self._inverse_transform([label])[0] > 0.0) & (self._inverse_transform([label])[0] < 0.1) ).sum()`
+            # Before this line this is 0
             X, label = self._experiment.train_preprocess(X, label, label_mask_value = self.label_mask_value)
 
 
@@ -144,7 +149,7 @@ class BaseEngine():
 
         wait = 0
         min_loss = np.inf
-        for epoch in range(self._max_epochs):
+        for self.epoch in range(self._max_epochs):
             t1 = time.time()
             mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
             t2 = time.time()
@@ -160,7 +165,7 @@ class BaseEngine():
                 self._lr_scheduler.step()
 
             message = 'Epoch: {:03d}, Train Loss: {:.4f}, Train RMSE: {:.4f}, Train MAPE: {:.4f}, Valid Loss: {:.4f}, Valid RMSE: {:.4f}, Valid MAPE: {:.4f}, Train Time: {:.4f}s/epoch, Valid Time: {:.4f}s, LR: {:.4e}'
-            self._logger.info(message.format(epoch + 1, mtrain_loss, mtrain_rmse, mtrain_mape, \
+            self._logger.info(message.format(self.epoch + 1, mtrain_loss, mtrain_rmse, mtrain_mape, \
                                              mvalid_loss, mvalid_rmse, mvalid_mape, \
                                              (t2 - t1), (v2 - v1), cur_lr))
 
@@ -172,7 +177,7 @@ class BaseEngine():
             else:
                 wait += 1
                 if wait == self._patience:
-                    self._logger.info('Early stop at epoch {}, loss = {:.6f}'.format(epoch + 1, min_loss))
+                    self._logger.info('Early stop at epoch {}, loss = {:.6f}'.format(self.epoch + 1, min_loss))
                     break
 
         self.evaluate('test')
@@ -186,11 +191,11 @@ class BaseEngine():
         preds = []
         labels = []
         with torch.no_grad():
-            for X, label in self._dataloader[mode + '_loader'].get_iterator():
+            for batch_i, (X, label) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
                 X, label = self._experiment.eval_preprocess(X, label, label_mask_value = self.label_mask_value)
-                
+     
                 pred, label, _ = self.forward(X, label, isTrain=False)
                 pred, label = self._inverse_transform([pred, label])
 
@@ -204,6 +209,10 @@ class BaseEngine():
         mask_value = torch.tensor(0)
         if labels.min() < 1:
             mask_value = labels.min()
+
+        print('Check mask value for evaluation: ', mask_value)
+
+        print((labels == mask_value).sum())
 
         if mode == 'val':
             mae = masked_mae(preds, labels, mask_value).item()
