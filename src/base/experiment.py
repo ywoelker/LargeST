@@ -8,7 +8,7 @@ class BaseExperiment():
         self.description = description
         
 
-    def train_preprocess(self, X, label, iteration = 0, label_mask_value = -torch.inf):
+    def train_preprocess(self, X, label, label_mask_value = -torch.inf):
         """
         Preprocess the input data and labels.
         This method can be overridden by subclasses for custom preprocessing.
@@ -16,7 +16,7 @@ class BaseExperiment():
         return X, label
     
 
-    def eval_preprocess(self, X, label, iteration = 0, label_mask_value = -torch.inf):
+    def eval_preprocess(self, X, label, label_mask_value = -torch.inf):
         """
         Preprocess the input data and labels for evaluation.
         This method can be overridden by subclasses for custom preprocessing.
@@ -55,6 +55,8 @@ class SparsityExperiment(BaseExperiment):
         self.seed = seed
         self.n_sensors = n_sensors
 
+        self.mask_iter = 0
+
 
         if self.train_dropout > 0:
             # Dropout some sensors which will only appear in the training process
@@ -83,11 +85,14 @@ class SparsityExperiment(BaseExperiment):
         if sparseness_type == 'spatial':
             mask_tensor = mask_tensor.unsqueeze(1)
 
-        return mask_tensor
+        return mask_tensor.float()
     
-    def train_preprocess(self, X, label, iteration = 0, label_mask_value = -torch.inf):
-
-        torch.manual_seed(self.seed + iteration)
+    def _set_seed_for_mask(self):
+        torch.manual_seed(self.seed + self.mask_iter)
+        self.mask_iter += 1
+        
+    
+    def train_preprocess(self, X, label, label_mask_value = -torch.inf):
         b, t, n, f = X.shape
         if self.input_sparseness != 'none' and self.input_dropout > 0:
             # Randomly mask input features
@@ -108,10 +113,9 @@ class SparsityExperiment(BaseExperiment):
 
         return X, label
     
-    def eval_preprocess(self, X, label, iteration = 0, label_mask_value = -torch.inf):
+    def eval_preprocess(self, X, label, label_mask_value = -torch.inf):
 
-        torch.manual_seed(self.seed ** 2 + iteration)
-
+        self._set_seed_for_mask()
         b, t, n, f = X.shape
         if self.input_sparseness != 'none' and self.input_dropout > 0:
             # Randomly mask input features
@@ -135,8 +139,8 @@ class SparsityExperiment(BaseExperiment):
 
         if self.train_dropout > 0:
             training_bool_mask = self.train_mask.squeeze().to(torch.bool).to(preds.device)
-            preds = preds[ :, training_bool_mask]
-            labels = labels[ :, training_bool_mask]
+            preds = preds[ :, ~training_bool_mask]
+            labels = labels[ :, ~training_bool_mask]
 
             # Compute metrics
             metric = compute_all_metrics(preds, labels, mask_value)

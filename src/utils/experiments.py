@@ -1,6 +1,6 @@
 from src.base.experiment import BaseExperiment, SparsityExperiment
 
-def get_experiment(args):
+def get_experiment(args, num_nodes):
     
     experiment_id = args.experiment_id
 
@@ -23,7 +23,7 @@ def get_experiment(args):
                 output_dropout=0,
                 train_dropout=0,
                 seed=args.seed,
-                n_sensors=args.num_nodes,
+                n_sensors=num_nodes,
                 device = args.device,
             )
         
@@ -37,7 +37,7 @@ def get_experiment(args):
                 output_dropout=0,
                 train_dropout=0,
                 seed=args.seed,
-                n_sensors=args.num_nodes,
+                n_sensors=num_nodes,
                 device = args.device,
             )
         elif experiment_id == '003':
@@ -50,7 +50,7 @@ def get_experiment(args):
                 output_dropout=0.8,
                 train_dropout=0,
                 seed=args.seed,
-                n_sensors=args.num_nodes,
+                n_sensors=num_nodes,
                 device = args.device,
             )
         elif experiment_id == '004':
@@ -63,7 +63,7 @@ def get_experiment(args):
                 output_dropout=0,
                 train_dropout=0.4,
                 seed=args.seed,
-                n_sensors=args.num_nodes,
+                n_sensors=num_nodes,
                 device = args.device,
             )
         elif experiment_id == '005':
@@ -76,7 +76,7 @@ def get_experiment(args):
                 output_dropout=0.6,
                 train_dropout=0.4,
                 seed=args.seed,
-                n_sensors=args.num_nodes,
+                n_sensors=num_nodes,
                 device = args.device,
             )
             
