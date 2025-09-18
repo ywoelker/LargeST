@@ -31,7 +31,7 @@ def get_experiment(args, num_nodes):
             return SparsityExperiment(
                 name='002',
                 description='BigST sensor wise input sparsity (0.8 drop)',
-                input_sparseness='point',
+                input_sparseness='spatial',
                 input_dropout=0.8,
                 output_sparseness='none',
                 output_dropout=0,
