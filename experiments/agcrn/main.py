@@ -16,7 +16,7 @@ from src.utils.args import get_public_config
 from src.utils.dataloader import load_dataset, get_dataset_info
 from src.utils.metrics import masked_mae
 from src.utils.logging import get_logger
-from src.utils.experiments import get_experiment
+
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -72,7 +72,6 @@ def main():
                           dataloader=dataloader,
                           scaler=scaler,
                           sampler=None,
-                          experiment = get_experiment(args, node_num),
                           loss_fn=loss_fn,
                           lrate=args.lrate,
                           optimizer=optimizer,

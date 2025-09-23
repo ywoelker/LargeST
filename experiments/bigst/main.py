@@ -10,16 +10,14 @@ sys.path.append(os.path.abspath(__file__ + '/../../..'))
 import torch
 torch.set_num_threads(3)
 
-from src.models.bigst import BigST, BigSTPreprocess
-from src.base.experiment import BaseExperiment, SparsityExperiment
-from src.engines.bigst_preprocess_engine import BigST_Pre_Engine
+from src.models.bigst import BigST
 from src.engines.bigst_engine import BigST_Engine
 from src.utils.args import get_public_config
 from src.utils.dataloader import load_dataset, load_adj_from_numpy, get_dataset_info
 from src.utils.graph_algo import normalize_adj_mx
 from src.utils.metrics import masked_mae
 from src.utils.logging import get_logger
-from src.utils.experiments import get_experiment
+
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -105,7 +103,6 @@ def main():
                         dataloader=dataloader,
                         scaler=scaler,
                         sampler=None,
-                        experiment = get_experiment(args, node_num),
                         loss_fn=loss_fn,
                         lrate=args.lrate,
                         optimizer=optimizer,

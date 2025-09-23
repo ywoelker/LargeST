@@ -7,10 +7,8 @@ from src.utils.metrics import masked_mape, masked_mae
 from src.utils.metrics import masked_rmse
 from src.utils.metrics import compute_all_metrics
 
-from src.base.experiment import BaseExperiment
-
 class BaseEngine():
-    def __init__(self, device, model, dataloader, scaler, sampler, experiment: BaseExperiment, loss_fn, lrate, optimizer, \
+    def __init__(self, device, model, dataloader, scaler, sampler, loss_fn, lrate, optimizer, \
                  scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed):
         super().__init__()
         self._device = device
@@ -19,7 +17,6 @@ class BaseEngine():
 
         self._dataloader = dataloader
         self._scaler = scaler
-        self._experiment = experiment
 
         self._loss_fn = loss_fn
         self._lrate = lrate
@@ -113,8 +110,6 @@ class BaseEngine():
             X, label = self._to_device(self._to_tensor([X, label]))
             #TODO: The problem is that after the next line this has 9k entries `((self._inverse_transform([label])[0] > 0.0) & (self._inverse_transform([label])[0] < 0.1) ).sum()`
             # Before this line this is 0
-            X, label = self._experiment.train_preprocess(X, label, label_mask_value = self.label_mask_value)
-
 
             pred, label, loss_container = self.forward(X, label, isTrain=True)            
             pred, label = self._inverse_transform([pred, label])
@@ -194,7 +189,6 @@ class BaseEngine():
             for batch_i, (X, label) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
-                X, label = self._experiment.eval_preprocess(X, label, label_mask_value = self.label_mask_value)
      
                 pred, label, _ = self.forward(X, label, isTrain=False)
                 pred, label = self._inverse_transform([pred, label])
@@ -226,8 +220,6 @@ class BaseEngine():
             test_rmse = []
             print('Check mask value', mask_value)
 
-            additional_metrics = {}
-
             for i in range(self.model.horizon):
                 res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value)
                 log = 'Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
@@ -236,29 +228,5 @@ class BaseEngine():
                 test_mape.append(res[1])
                 test_rmse.append(res[2])
 
-                experiment_metrics = self._experiment.experiment_evaluation_metrics(preds[:,i,:], labels[:,i,:], mask_value)
-
-                for e_metric in experiment_metrics:
-                    log = 'Horizon {:d}, {}: MAE: {:.4f}, RMSE: {:.4f}, MAPE: {:.4f}'
-                    self._logger.info(log.format(i + 1, e_metric, experiment_metrics[e_metric][0], \
-                                                 experiment_metrics[e_metric][2], experiment_metrics[e_metric][1]))
-                    
-                    if e_metric not in additional_metrics:
-                        additional_metrics[e_metric] = [[experiment_metrics[e_metric][0]], \
-                                                        [experiment_metrics[e_metric][1]], \
-                                                        [experiment_metrics[e_metric][2]]]
-                    else:
-                        additional_metrics[e_metric][0].append(experiment_metrics[e_metric][0])
-                        additional_metrics[e_metric][1].append(experiment_metrics[e_metric][1])
-                        additional_metrics[e_metric][2].append(experiment_metrics[e_metric][2])
-
-
-
             log = 'Average Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
             self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))
-
-            for e_metric in additional_metrics:
-                log = 'Average {}: MAE: {:.4f}, RMSE: {:.4f}, MAPE: {:.4f}'
-                self._logger.info(log.format(e_metric, np.mean(additional_metrics[e_metric][0]), \
-                                             np.mean(additional_metrics[e_metric][2]), \
-                                             np.mean(additional_metrics[e_metric][1])))
