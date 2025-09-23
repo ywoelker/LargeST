@@ -20,5 +20,8 @@ def get_public_config():
     parser.add_argument('--max_epochs', type=int, default=100)
     parser.add_argument('--patience', type=int, default=30)
 
-    parser.add_argument('--experiment_id', type=str, default=None)
+
+    parser.add_argument('--mask_name', type=str, default=None, help='Name to the folder where the mask member is stored. If None, no mask is used.')
+    parser.add_argument('--mask_iter', type= int, default=0, help='Which mask to use from the mask folder.')
+    parser.add_argument('--use_metadata', type=bool, default=False, help='Whether to use the metadata (e.g., time of day, day of week, etc.)')
     return parser
