@@ -1,13 +1,23 @@
 import torch
 
-def masked_mse(preds, labels, null_val):
+def _label_mask(label, null_val):
     if torch.isnan(null_val):
-        mask = ~torch.isnan(labels)
+        mask = ~torch.isnan(label)
     else:
-        mask = (labels != null_val)
+        mask = (label != null_val)
+
+    if torch.isnan(label).any():
+        nan_mask = ~torch.isnan(label)
+        mask = mask & nan_mask
+
     mask = mask.float()
+
     mask /= torch.mean((mask))
     mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    return mask
+
+def masked_mse(preds, labels, null_val):
+    mask = _label_mask(labels, null_val)
     loss = (preds - labels)**2
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
@@ -19,13 +29,7 @@ def masked_rmse(preds, labels, null_val):
 
 
 def masked_mae(preds, labels, null_val):
-    if torch.isnan(null_val):
-        mask = ~torch.isnan(labels)
-    else:
-        mask = (labels != null_val)
-    mask = mask.float()
-    mask /= torch.mean((mask))
-    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    mask = _label_mask(labels, null_val)
     loss = torch.abs(preds - labels)
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
@@ -33,13 +37,7 @@ def masked_mae(preds, labels, null_val):
 
 
 def masked_mape(preds, labels, null_val):
-    if torch.isnan(null_val):
-        mask = ~torch.isnan(labels)
-    else:
-        mask = (labels != null_val)
-    mask = mask.float()
-    mask /= torch.mean((mask))
-    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
+    mask = _label_mask(labels, null_val)
     loss = torch.abs(preds - labels) / labels
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)

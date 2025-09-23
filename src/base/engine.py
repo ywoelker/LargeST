@@ -91,7 +91,21 @@ class BaseEngine():
     def loss(self, pred, label, mask_value, loss_container):
         loss = self._loss_fn(pred, label, mask_value)
         return loss
-
+    
+    def mask_value(self, label):
+        # handle the precision issue when performing inverse transform to label
+        mask_value = torch.tensor(0)
+        if label.min() < 1:
+            mask_value = label.min()
+        
+        if torch.isnan(label.min()).any():
+            def nanmin(tensor):
+                max_value = torch.finfo(tensor.dtype).max
+                output = tensor.nan_to_num(max_value).min()
+                return output
+            
+            mask_value = nanmin(label)
+        return mask_value
 
     def train_batch(self):
         self.model.train()
@@ -114,10 +128,8 @@ class BaseEngine():
             pred, label, loss_container = self.forward(X, label, isTrain=True)            
             pred, label = self._inverse_transform([pred, label])
     
-            # handle the precision issue when performing inverse transform to label
-            mask_value = torch.tensor(0)
-            if label.min() < 1:
-                mask_value = label.min()
+            mask_value = self.mask_value(label)
+
             if self._iter_cnt == 0:
                 print('Check mask value', mask_value)
 
@@ -200,9 +212,7 @@ class BaseEngine():
         labels = torch.cat(labels, dim=0)
 
         # handle the precision issue when performing inverse transform to label
-        mask_value = torch.tensor(0)
-        if labels.min() < 1:
-            mask_value = labels.min()
+        mask_value = self.mask_value(labels)
 
         print('Check mask value for evaluation: ', mask_value)
 

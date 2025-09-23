@@ -1,12 +1,14 @@
 import os
 import pickle
 import torch
+import json
 import numpy as np
 import threading
 import multiprocessing as mp
+from pathlib import Path
 
 class DataLoader(object):
-    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None):
+    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None):
         if pad_last_sample:
             num_padding = (bs - (len(idx) % bs)) % bs
             idx_padding = np.repeat(idx[-1:], num_padding, axis=0)
@@ -27,6 +29,22 @@ class DataLoader(object):
         self.seq_len = seq_len
         self.horizon = horizon
 
+        self.input_mask = input_mask
+        self.output_mask = output_mask
+
+        assert self.input_mask is None or self.input_mask.shape[:2] == self.data.shape[:2]
+        assert self.output_mask is None or self.output_mask.shape[:2] == self.data.shape[:2]
+
+        self.data_in = self.data
+        self.data_out = self.data.copy()
+        # self.output_mask_value = -np.inf 
+        self.output_mask_value = np.nan
+
+        if self.input_mask is not None:
+            self.data_in = self.data_in * self.input_mask[..., np.newaxis]
+
+        if self.output_mask is not None:
+            self.data_out = np.where(self.output_mask[..., np.newaxis] == 0, self.output_mask_value, self.data_out)
 
     def shuffle(self):
         perm = np.random.permutation(self.size)
@@ -36,14 +54,14 @@ class DataLoader(object):
 
     def write_to_shared_array(self, x, y, idx_ind, start_idx, end_idx):
         for i in range(start_idx, end_idx):
-            tmp = self.data[idx_ind[i] + self.x_offsets, :, :]
+            tmp = self.data_in[idx_ind[i] + self.x_offsets, :, :]
             if self.metadata is not None:
                 tmp = np.concatenate([
                     tmp, 
                     np.tile(self.metadata, (self.seq_len, 1, 1))
                 ], axis = -1)
             x[i] = tmp
-            y[i] = self.data[idx_ind[i] + self.y_offsets, :, :1]
+            y[i] = self.data_out[idx_ind[i] + self.y_offsets, :, :1]
 
 
     def get_iterator(self):
@@ -102,12 +120,55 @@ def load_dataset(data_path, args, logger):
     logger.info('Data shape: ' + str(ptr['data'].shape))
     
     dataloader = {}
+
+    use_masks = args.mask_name is not None
+
+    if use_masks:
+        mask_path = Path('data/masks') / args.dataset.lower() / args.mask_name / f'mask_{args.mask_iter:02d}'
+        input_mask = torch.load(mask_path / 'input_mask.pt').numpy().squeeze()
+        output_mask = torch.load(mask_path / 'output_mask.pt').numpy().squeeze()
+
+        mask_config = json.load(open(mask_path / '../config.json', 'r'))
+
+        if mask_config.get('train_dropout', 0) > 0:
+            train_mask = torch.load(mask_path / 'train_mask.pt').numpy().squeeze()
+            train_mask = np.tile( train_mask[np.newaxis, :], (input_mask.shape[0], 1))
+
+            input_mask_train = input_mask & train_mask
+            output_mask_train = output_mask & train_mask
+        else:
+            input_mask_train = input_mask
+            output_mask_train = output_mask
+    else:
+        input_mask = None
+        output_mask = None
+
+    if args.use_metadata:
+            metadata = ptr.get('metadata', None)
+            metadata_dict = ptr.get('metadata_dict', None)
+    else:
+        metadata = None
+        metadata_dict = None
+
     for cat in ['train', 'val', 'test']:
         idx = np.load(os.path.join(data_path, args.years, 'idx_' + cat + '.npy'))
-        dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
+
+        if cat == 'train' and use_masks:
+            dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
                                                  args.seq_len, args.horizon, args.bs, logger, 
-                                                 metadata = None, #ptr.get('metadata', None), 
-                                                 metadata_dict = ptr.get('metadata_dict', None))
+                                                 metadata = metadata, 
+                                                 metadata_dict = metadata_dict, 
+                                                 input_mask=input_mask_train,
+                                                 output_mask=output_mask_train
+                                                 )
+        else:         
+            dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
+                                                 args.seq_len, args.horizon, args.bs, logger, 
+                                                 metadata = metadata, 
+                                                 metadata_dict = metadata_dict, 
+                                                 input_mask=input_mask,
+                                                 output_mask=output_mask
+                                                 )
 
     scaler = StandardScaler(mean=ptr['mean'], std=ptr['std'])
     return dataloader, scaler
