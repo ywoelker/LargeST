@@ -41,10 +41,10 @@ class DataLoader(object):
         self.output_mask_value = np.nan
 
         if self.input_mask is not None:
-            self.data_in = self.data_in * self.input_mask[..., np.newaxis]
+            self.input_mask = self.input_mask[..., np.newaxis]
 
         if self.output_mask is not None:
-            self.data_out = np.where(self.output_mask[..., np.newaxis] == 0, self.output_mask_value, self.data_out)
+            self.output_mask = self.output_mask[..., np.newaxis]
 
     def shuffle(self):
         perm = np.random.permutation(self.size)
@@ -52,7 +52,7 @@ class DataLoader(object):
         self.idx = idx
 
 
-    def write_to_shared_array(self, x, y, idx_ind, start_idx, end_idx):
+    def write_to_shared_array(self, x, y, x_mask, y_mask, idx_ind, start_idx, end_idx):
         for i in range(start_idx, end_idx):
             tmp = self.data_in[idx_ind[i] + self.x_offsets, :, :]
             if self.metadata is not None:
@@ -60,8 +60,22 @@ class DataLoader(object):
                     tmp, 
                     np.tile(self.metadata, (self.seq_len, 1, 1))
                 ], axis = -1)
+
+            if self.input_mask is not None:
+                tmp = tmp * self.input_mask[idx_ind[i] + self.x_offsets, :, :]
+                x_mask[i] = self.input_mask[idx_ind[i] + self.x_offsets, :, :]
+            else :
+                x_mask[i] = 1
+
+            y_tmp = self.data_out[idx_ind[i] + self.y_offsets, :, :1]
+            if self.output_mask is not None:
+                y_tmp = np.where(self.output_mask[idx_ind[i] + self.y_offsets, :, :] == 0, self.output_mask_value, y_tmp)
+                y_mask[i] = self.output_mask[idx_ind[i] + self.y_offsets, :, :]
+            else:
+                y_mask[i] = 1
+            
             x[i] = tmp
-            y[i] = self.data_out[idx_ind[i] + self.y_offsets, :, :1]
+            y[i] = y_tmp
 
 
     def get_iterator(self):
@@ -77,9 +91,17 @@ class DataLoader(object):
                 x_shared = mp.RawArray('f', int(np.prod(x_shape)))
                 x = np.frombuffer(x_shared, dtype='f').reshape(x_shape)
 
+                x_mask_shape = (len(idx_ind), self.seq_len, self.data.shape[1], 1)
+                x_mask_shared = mp.RawArray('b', int(np.prod(x_mask_shape)))
+                x_mask = np.frombuffer(x_mask_shared, dtype='b').reshape(x_mask_shape)
+
                 y_shape = (len(idx_ind), self.horizon, self.data.shape[1], 1)
                 y_shared = mp.RawArray('f', int(np.prod(y_shape)))
                 y = np.frombuffer(y_shared, dtype='f').reshape(y_shape)
+
+                y_mask_shape = (len(idx_ind), self.horizon, self.data.shape[1], 1)
+                y_mask_shared = mp.RawArray('b', int(np.prod(y_mask_shape)))
+                y_mask = np.frombuffer(y_mask_shared, dtype='b').reshape(y_mask_shape)
 
                 array_size = len(idx_ind)
                 num_threads = len(idx_ind) // 2
@@ -88,14 +110,14 @@ class DataLoader(object):
                 for i in range(num_threads):
                     start_index = i * chunk_size
                     end_index = start_index + chunk_size if i < num_threads - 1 else array_size
-                    thread = threading.Thread(target=self.write_to_shared_array, args=(x, y, idx_ind, start_index, end_index))
+                    thread = threading.Thread(target=self.write_to_shared_array, args=(x, y, x_mask, y_mask, idx_ind, start_index, end_index))
                     thread.start()
                     threads.append(thread)
 
                 for thread in threads:
                     thread.join()
 
-                yield (x, y)
+                yield (x, y, x_mask, y_mask)
                 self.current_ind += 1
 
         return _wrapper()
