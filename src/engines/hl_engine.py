@@ -38,9 +38,19 @@ class HL_Engine(BaseEngine):
             res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value)
             log = 'Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
             self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+            self._wandb_logger.log_metrics({
+                    f'test/horizon_{i+1}/mae': res[0],
+                    f'test/horizon_{i+1}/mape': res[1],
+                    f'test/horizon_{i+1}/rmse': res[2]
+                })
             test_mae.append(res[0])
             test_mape.append(res[1])
             test_rmse.append(res[2])
 
         log = 'Average Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+        self._wandb_logger.log_metrics({
+                'test/avg_mae': np.mean(test_mae),
+                'test/avg_mape': np.mean(test_mape),
+                'test/avg_rmse': np.mean(test_rmse)
+            })
         self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))
