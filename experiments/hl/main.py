@@ -29,6 +29,7 @@ def set_seed(seed):
 def get_config():
     parser = get_public_config()
     args = parser.parse_args()
+    args.model_name = 'HL' if args.model_name == '' else args.model_name
 
     log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), str(uuid.uuid4())[-6:])
     logger = get_logger(log_dir, __name__, 'record_s{}.log'.format(args.seed))
@@ -41,6 +42,15 @@ def main():
     args, log_dir, logger = get_config()
     set_seed(args.seed)
     device = torch.device(args.device)
+
+    # Initialize wandb
+    from src.utils.logging import WandbLogger, get_run_name
+    wandb_logger = WandbLogger(project=args.wandb_project, 
+                               is_used=args.use_wandb, 
+                               name=get_run_name(args),
+                               entity=args.wandb_entity
+                               )
+    wandb_logger.log_hyperparams(vars(args))
     
     data_path, _, node_num = get_dataset_info(args.dataset)
     
@@ -69,11 +79,17 @@ def main():
                        patience=args.patience,
                        log_dir=log_dir,
                        logger=logger,
-                       seed=args.seed
+                       seed=args.seed,
+                       wandb_logger=wandb_logger
                        )
 
     if args.mode == 'train':
-        engine.train()
+        try:
+            engine.train()
+        except KeyboardInterrupt:
+            logger.info('Exiting from training early')
+            logger.info('Evaluating using the best model found so far')
+            engine.evaluate('test')
     else:
         engine.evaluate(args.mode)
 
