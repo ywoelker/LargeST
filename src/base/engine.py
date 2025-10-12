@@ -9,7 +9,7 @@ from src.utils.metrics import compute_all_metrics
 
 class BaseEngine():
     def __init__(self, device, model, dataloader, scaler, sampler, loss_fn, lrate, optimizer, \
-                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed):
+                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger=None):
         super().__init__()
         self._device = device
         self.model = model
@@ -30,6 +30,7 @@ class BaseEngine():
         self._save_path = log_dir
         self._logger = logger
         self._seed = seed
+        self._wandb_logger = wandb_logger
 
         self.label_mask_value = self._scaler.transform(torch.tensor([0])).to(self._device)[0].to(torch.float)
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
@@ -158,12 +159,22 @@ class BaseEngine():
         min_loss = np.inf
         for self.epoch in range(self._max_epochs):
             t1 = time.time()
-            mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()
+            mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()            
             t2 = time.time()
+          
+            # Log epoch-level training metrics
+            if self._wandb_logger is not None:
+                self._wandb_logger.log_metrics({
+                    'train/loss': mtrain_loss,
+                    'train/mape': mtrain_mape,
+                    'train/rmse': mtrain_rmse,
+                    'train/time_per_epoch': t2 - t1
+                })
 
             v1 = time.time()
             mvalid_loss, mvalid_mape, mvalid_rmse = self.evaluate('val')
             v2 = time.time()
+
 
             if self._lr_scheduler is None:
                 cur_lr = self._lrate
@@ -171,6 +182,16 @@ class BaseEngine():
                 cur_lr = self._lr_scheduler.get_last_lr()[0]
                 self._lr_scheduler.step()
 
+            # Log epoch-level validation metrics
+            if self._wandb_logger is not None:
+                self._wandb_logger.log_metrics({
+                    'val/loss': mvalid_loss,
+                    'val/mape': mvalid_mape,
+                    'val/rmse': mvalid_rmse,
+                    'val/time': v2 - v1,
+                    'lr': cur_lr
+                })
+                
             message = 'Epoch: {:03d}, Train Loss: {:.4f}, Train RMSE: {:.4f}, Train MAPE: {:.4f}, Valid Loss: {:.4f}, Valid RMSE: {:.4f}, Valid MAPE: {:.4f}, Train Time: {:.4f}s/epoch, Valid Time: {:.4f}s, LR: {:.4e}'
             self._logger.info(message.format(self.epoch + 1, mtrain_loss, mtrain_rmse, mtrain_mape, \
                                              mvalid_loss, mvalid_rmse, mvalid_mape, \
@@ -234,9 +255,19 @@ class BaseEngine():
                 res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value)
                 log = 'Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
                 self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+                self._wandb_logger.log_metrics({
+                    f'test/horizon_{i+1}/mae': res[0],
+                    f'test/horizon_{i+1}/mape': res[1],
+                    f'test/horizon_{i+1}/rmse': res[2]
+                })
                 test_mae.append(res[0])
                 test_mape.append(res[1])
                 test_rmse.append(res[2])
 
             log = 'Average Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+            self._wandb_logger.log_metrics({
+                'test/avg_mae': np.mean(test_mae),
+                'test/avg_mape': np.mean(test_mape),
+                'test/avg_rmse': np.mean(test_rmse)
+            })
             self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))

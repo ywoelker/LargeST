@@ -1,3 +1,8 @@
+# ignore unnecessary files for the project
+wandb/
+data/
+results/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
