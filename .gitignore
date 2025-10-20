@@ -1,6 +1,10 @@
 # ignore unnecessary files for the project
 wandb/
 data/
+experiments/**/*.pt
+*.out
+scripts/
+launch.json
 results/
 
 # Byte-compiled / optimized / DLL files
