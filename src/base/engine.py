@@ -118,13 +118,17 @@ class BaseEngine():
 
         
         print('Check label mask value', self.label_mask_value)
-        for X, label in tqdm(self._dataloader['train_loader'].get_iterator(),total = self._dataloader['train_loader'].num_batch, desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
+        for X, label, x_mask, label_mask in tqdm(self._dataloader['train_loader'].get_iterator(),total = self._dataloader['train_loader'].num_batch, desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
             self._optimizer.zero_grad()
 
             # X (b, t, n, f), label (b, t, n, 1)
             X, label = self._to_device(self._to_tensor([X, label]))
             #TODO: The problem is that after the next line this has 9k entries `((self._inverse_transform([label])[0] > 0.0) & (self._inverse_transform([label])[0] < 0.1) ).sum()`
             # Before this line this is 0
+
+            self.current_x_mask = self._to_device(self._to_tensor(x_mask))
+            self.current_label_mask = self._to_device(self._to_tensor(label_mask))
+            
 
             pred, label, loss_container = self.forward(X, label, isTrain=True)            
             pred, label = self._inverse_transform([pred, label])
@@ -219,9 +223,12 @@ class BaseEngine():
         preds = []
         labels = []
         with torch.no_grad():
-            for batch_i, (X, label) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
+            for batch_i, (X, label, x_mask, label_mask) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
+
+                self.current_x_mask = self._to_device(self._to_tensor(x_mask))
+                self.current_label_mask = self._to_device(self._to_tensor(label_mask))
      
                 pred, label, _ = self.forward(X, label, isTrain=False)
                 pred, label = self._inverse_transform([pred, label])
