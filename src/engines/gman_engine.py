@@ -33,110 +33,11 @@ class GMAN_Engine(BaseEngine):
         dow_all = torch.cat([dow, dow_f], dim=1)
         return torch.stack([dow_all, tod_all], dim=-1)  # [B, his+horizon, 2]
 
-    # Training loop for one epoch
-    def train_batch(self):
-        self.model.train()
-        train_loss, train_mape, train_rmse = [], [], []
+    def forward(self, X, label, isTrain=False):
+        
+        X_input = X[..., 0]  # [B, his, N]
+        TE = self.build_te(X, horizon=self.model.horizon)
 
-        self._dataloader['train_loader'].shuffle()
+        pred = self.model(X_input, TE)
 
-        for X, label in tqdm(self._dataloader['train_loader'].get_iterator(),
-                             total=self._dataloader['train_loader'].num_batch,
-                             desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
-
-            X, label = self._to_device(self._to_tensor([X, label]))
-            self._optimizer.zero_grad()
-
-            # Extract main input feature
-            X_input = X[..., 0]  # [B, his, N]
-            TE = self.build_te(X, horizon=self.model.horizon)
-
-            # Forward
-            pred = self.model(X_input, TE)
-            pred, label = self._inverse_transform([pred, label])
-            label = label.squeeze(-1)   # now pred,label -> [B, H, N]
-
-            # Compute masked loss
-            mask_value = self.mask_value(label)
-
-            if self._iter_cnt == 0:
-                print('Check mask value', mask_value)
-
-            loss = self._loss_fn(pred, label, mask_value)
-            mape = masked_mape(pred, label, mask_value).item()
-            rmse = masked_rmse(pred, label, mask_value).item()
-
-            # Backpropagation
-            loss.backward()
-            if self._clip_grad_value != 0:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self._clip_grad_value)
-            self._optimizer.step()
-
-            train_loss.append(loss.item())
-            train_mape.append(mape)
-            train_rmse.append(rmse)
-
-            self._iter_cnt += 1
-
-        return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse)
-
-    # Evaluation loop
-    def evaluate(self, mode):
-        if mode == 'test':
-            self.load_model(self._save_path)
-        self.model.eval()
-
-        preds, labels = [], []
-
-        with torch.no_grad():
-            for X, label in self._dataloader[mode + '_loader'].get_iterator():
-                X, label = self._to_device(self._to_tensor([X, label]))
-                X_input = X[..., 0]
-                TE = self.build_te(X, horizon=self.model.horizon)
-                pred = self.model(X_input, TE)
-                pred, label = self._inverse_transform([pred, label])
-                label = label.squeeze(-1)   # now pred,label -> [B, H, N]
-
-                preds.append(pred.cpu())
-                labels.append(label.cpu())
-
-        preds = torch.cat(preds, dim=0)
-        labels = torch.cat(labels, dim=0)
-
-        mask_value = self.mask_value(labels)
-
-        print('Check mask value for evaluation: ', mask_value)
-
-        print((labels == mask_value).sum())
-
-
-        if mode == 'val':
-            mae = self._loss_fn(preds, labels, mask_value).item()
-            mape = masked_mape(preds, labels, mask_value).item()
-            rmse = masked_rmse(preds, labels, mask_value).item()
-            return mae, mape, rmse
-
-        elif mode == 'test':
-            test_mae, test_mape, test_rmse = [], [], []
-            for i in range(self.model.horizon):
-                res = compute_all_metrics(preds[:, i, :], labels[:, i, :], mask_value)
-                self._logger.info(
-                    f"Horizon {i+1}: MAE {res[0]:.4f}, RMSE {res[2]:.4f}, MAPE {res[1]:.4f}"
-                )
-                self._wandb_logger.log_metrics({
-                    f'test/horizon_{i+1}/mae': res[0],
-                    f'test/horizon_{i+1}/mape': res[1],
-                    f'test/horizon_{i+1}/rmse': res[2]
-                })
-                test_mae.append(res[0]); test_mape.append(res[1]); test_rmse.append(res[2])
-
-            self._logger.info(
-                f"Average Test MAE: {np.mean(test_mae):.4f}, "
-                f"RMSE: {np.mean(test_rmse):.4f}, "
-                f"MAPE: {np.mean(test_mape):.4f}"
-            )
-            self._wandb_logger.log_metrics({
-                'test/avg_mae': np.mean(test_mae),
-                'test/avg_mape': np.mean(test_mape),
-                'test/avg_rmse': np.mean(test_rmse)
-            })
+        return pred.unsqueeze(-1), label, None
