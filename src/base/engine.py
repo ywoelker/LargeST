@@ -90,7 +90,7 @@ class BaseEngine():
     
  
     def loss(self, pred, label, mask_value, loss_container):
-        loss = self._loss_fn(pred, label, mask_value)
+        loss = self._loss_fn(pred, label, mask_value, label_mask= self.current_label_mask)
         return loss
     
     def mask_value(self, label):
@@ -105,7 +105,11 @@ class BaseEngine():
                 output = tensor.nan_to_num(max_value).min()
                 return output
             
-            mask_value = nanmin(label)
+            mask_value_nanmin = nanmin(label)
+
+            if mask_value_nanmin < 1:
+                mask_value = mask_value_nanmin
+
         return mask_value
 
     def train_batch(self):
@@ -130,7 +134,9 @@ class BaseEngine():
             self.current_label_mask = self._to_device(self._to_tensor(label_mask))
             
 
-            pred, label, loss_container = self.forward(X, label, isTrain=True)            
+            labels_as_input_to_model = torch.where(self.current_label_mask.to(bool), label, self.label_mask_value)
+
+            pred, labels_as_input_to_model, loss_container = self.forward(X, labels_as_input_to_model, isTrain=True)            
             pred, label = self._inverse_transform([pred, label])
     
             mask_value = self.mask_value(label)
@@ -140,8 +146,8 @@ class BaseEngine():
 
             loss = self.loss(pred, label, mask_value, loss_container)
 
-            mape = masked_mape(pred, label, mask_value).item()
-            rmse = masked_rmse(pred, label, mask_value).item()
+            mape = masked_mape(pred, label, mask_value, label_mask= self.current_label_mask).item()
+            rmse = masked_rmse(pred, label, mask_value, label_mask= self.current_label_mask).item()
 
             loss.backward()
             if self._clip_grad_value != 0:
