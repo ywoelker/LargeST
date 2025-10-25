@@ -175,7 +175,7 @@ def load_dataset(data_path, args, logger):
     for cat in ['train', 'val', 'test']:
         idx = np.load(os.path.join(data_path, args.years, 'idx_' + cat + '.npy'))
 
-        if cat == 'train' and use_masks:
+        if use_masks and (cat == 'train' or cat == 'val'):
             dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
                                                  args.seq_len, args.horizon, args.bs, logger, 
                                                  metadata = metadata, 
