@@ -6,6 +6,9 @@ experiments/**/*.pt
 scripts/
 launch.json
 results/
+./launch_python_jobs.py
+scripts_logs/
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
