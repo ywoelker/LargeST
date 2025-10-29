@@ -38,7 +38,6 @@ def set_seed(seed):
 """
 def get_config():
     parser = get_public_config()
-    parser.add_argument('--in_dim', type=int, default=3)
     parser.add_argument('--nhid', type=int, default=32)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
 
@@ -68,7 +67,8 @@ def main():
     wandb_logger = WandbLogger(project=args.wandb_project, 
                                is_used=args.use_wandb, 
                                name=get_run_name(args),
-                               entity=args.wandb_entity
+                               entity=args.wandb_entity,
+                               tags=args.wandb_tags,
                                )
     wandb_logger.log_hyperparams(vars(args))
     

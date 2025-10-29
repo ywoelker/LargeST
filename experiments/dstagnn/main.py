@@ -62,7 +62,8 @@ def main():
     wandb_logger = WandbLogger(project=args.wandb_project, 
                                is_used=args.use_wandb, 
                                name=get_run_name(args),
-                               entity=args.wandb_entity
+                               entity=args.wandb_entity,
+                               tags=args.wandb_tags,
                                )
     wandb_logger.log_hyperparams(vars(args))
     

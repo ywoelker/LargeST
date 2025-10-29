@@ -43,4 +43,6 @@ def get_public_config():
                        help='Weights & Biases project name')
     parser.add_argument('--wandb_entity', type=str, default='usc-infolab',
                        help='Weights & Biases entity (username or team)')
+    parser.add_argument('--wandb_tags', type=str, nargs='+', default=[],
+                       help='Tags for the wandb run')
     return parser

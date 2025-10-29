@@ -58,7 +58,7 @@ class WandbLogger:
     """A small wrapper around wandb that makes wandb optional and easy to use.
     """
 
-    def __init__(self, project: str, is_used: bool, name: str = None, entity: str = None):
+    def __init__(self, project: str, is_used: bool, name: str = None, entity: str = None, tags: list = None):
         """Initialize the wrapper. If `is_used` is True but wandb is not installed,
         the wrapper will disable itself and show a warning.
 
@@ -76,10 +76,11 @@ class WandbLogger:
         self._project = project
         self._name = name
         self._entity = entity
+        self._tags = tags
 
         if self.is_used:
             try:
-                wandb.init(project=project, entity=entity, name=name)
+                wandb.init(project=project, entity=entity, name=name, tags=tags)
                 self._initialized = True
             except Exception as e:  # be defensive: don't let wandb failures kill the run
                 logging.getLogger(__name__).exception('Failed to initialize wandb: %s', e)
