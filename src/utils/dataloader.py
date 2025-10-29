@@ -8,7 +8,13 @@ import multiprocessing as mp
 from pathlib import Path
 
 class DataLoader(object):
-    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None):
+    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None, available_sensors = None):
+        """
+
+        ## Parameters
+        available_sensors: list or None, if None all sensors will be available. The shape should be (num_sensors, 1)
+
+        """
         if pad_last_sample:
             num_padding = (bs - (len(idx) % bs)) % bs
             idx_padding = np.repeat(idx[-1:], num_padding, axis=0)
@@ -31,6 +37,9 @@ class DataLoader(object):
 
         self.input_mask = input_mask
         self.output_mask = output_mask
+
+        self.n_sensors = self.data.shape[1]
+        self.available_sensors = available_sensors
 
         assert self.input_mask is None or self.input_mask.shape[:2] == self.data.shape[:2]
         assert self.output_mask is None or self.output_mask.shape[:2] == self.data.shape[:2]
@@ -55,17 +64,21 @@ class DataLoader(object):
     def write_to_shared_array(self, x, y, x_mask, y_mask, idx_ind, start_idx, end_idx):
         for i in range(start_idx, end_idx):
             tmp = self.data_in[idx_ind[i] + self.x_offsets, :, :]
-            if self.metadata is not None:
-                tmp = np.concatenate([
-                    tmp, 
-                    np.tile(self.metadata, (self.seq_len, 1, 1))
-                ], axis = -1)
-
+            
+            ## The input mask has to be applied before the metadata is concatenated
             if self.input_mask is not None:
                 tmp = tmp * self.input_mask[idx_ind[i] + self.x_offsets, :, :]
                 x_mask[i] = self.input_mask[idx_ind[i] + self.x_offsets, :, :]
             else :
                 x_mask[i] = 1
+
+
+            ## Concatenate metadata if available
+            if self.metadata is not None:
+                tmp = np.concatenate([
+                    tmp, 
+                    np.tile(self.metadata, (self.seq_len, 1, 1))
+                ], axis = -1)
 
             y_tmp = self.data_out[idx_ind[i] + self.y_offsets, :, :1]
             if self.output_mask is not None:
@@ -73,6 +86,15 @@ class DataLoader(object):
                 y_mask[i] = self.output_mask[idx_ind[i] + self.y_offsets, :, :]
             else:
                 y_mask[i] = 1
+
+
+            ## Remove the unavailable sensors at the end to zero out all their values
+            if self.available_sensors is not None:
+                tmp = tmp * self.available_sensors[np.newaxis, :, :]
+                x_mask[i] = x_mask[i] * self.available_sensors[np.newaxis, :, :]
+
+                y_tmp = y_tmp * self.available_sensors[np.newaxis, :, :]
+                y_mask[i] = y_mask[i] * self.available_sensors[np.newaxis, :, :]
             
             x[i] = tmp
             y[i] = y_tmp
@@ -154,16 +176,14 @@ def load_dataset(data_path, args, logger):
 
         if mask_config.get('train_dropout', 0) > 0:
             train_mask = torch.load(mask_path / 'train_mask.pt').numpy().squeeze()
-            train_mask = np.tile( train_mask[np.newaxis, :], (input_mask.shape[0], 1))
-
-            input_mask_train = input_mask & train_mask
-            output_mask_train = output_mask & train_mask
+            # train_mask = np.tile( train_mask[np.newaxis, :], (input_mask.shape[0], 1))
+            train_mask = train_mask.reshape(-1, 1)
         else:
-            input_mask_train = input_mask
-            output_mask_train = output_mask
+            train_mask = None
     else:
         input_mask = None
         output_mask = None
+        train_mask = None
 
     if args.use_metadata:
             metadata = ptr.get('metadata', None)
@@ -180,8 +200,9 @@ def load_dataset(data_path, args, logger):
                                                  args.seq_len, args.horizon, args.bs, logger, 
                                                  metadata = metadata, 
                                                  metadata_dict = metadata_dict, 
-                                                 input_mask=input_mask_train,
-                                                 output_mask=output_mask_train
+                                                 input_mask=input_mask,
+                                                 output_mask=output_mask,
+                                                 available_sensors = train_mask,
                                                  )
         else:         
             dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
@@ -189,7 +210,8 @@ def load_dataset(data_path, args, logger):
                                                  metadata = metadata, 
                                                  metadata_dict = metadata_dict, 
                                                  input_mask=input_mask,
-                                                 output_mask=output_mask
+                                                 output_mask=output_mask,
+                                                 available_sensors = None
                                                  )
 
     scaler = StandardScaler(mean=ptr['mean'], std=ptr['std'])
