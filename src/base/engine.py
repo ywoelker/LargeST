@@ -6,10 +6,12 @@ from tqdm import tqdm
 from src.utils.metrics import masked_mape, masked_mae
 from src.utils.metrics import masked_rmse
 from src.utils.metrics import compute_all_metrics
+from src.utils.dataloader import DataLoader
+from src.utils.logging import WandbLogger
 
 class BaseEngine():
-    def __init__(self, device, model, dataloader, scaler, sampler, loss_fn, lrate, optimizer, \
-                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger=None):
+    def __init__(self, device, model, dataloader: dict[str,DataLoader], scaler, sampler, loss_fn, lrate, optimizer, \
+                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger:WandbLogger):
         super().__init__()
         self._device = device
         self.model = model
@@ -199,7 +201,8 @@ class BaseEngine():
                     'val/mape': mvalid_mape,
                     'val/rmse': mvalid_rmse,
                     'val/time': v2 - v1,
-                    'lr': cur_lr
+                    'lr': cur_lr,
+                    'epoch': self.epoch + 1
                 })
                 
             message = 'Epoch: {:03d}, Train Loss: {:.4f}, Train RMSE: {:.4f}, Train MAPE: {:.4f}, Valid Loss: {:.4f}, Valid RMSE: {:.4f}, Valid MAPE: {:.4f}, Train Time: {:.4f}s/epoch, Valid Time: {:.4f}s, LR: {:.4e}'
@@ -221,7 +224,7 @@ class BaseEngine():
         self.evaluate('test')
 
 
-    def evaluate(self, mode):
+    def evaluate(self, mode) -> tuple:
         if mode == 'test':
             self.load_model(self._save_path)
         self.model.eval()
@@ -284,3 +287,61 @@ class BaseEngine():
                 'test/avg_rmse': np.mean(test_rmse)
             })
             self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))
+
+
+            training_available_sensors = self._dataloader['train_loader'].available_sensors
+            if training_available_sensors is not None:
+
+                for i in range(self.model.horizon):
+                    res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 1], labels[:,i,training_available_sensors.squeeze() == 1], mask_value)
+                    log = '\tAvailable Sensors - Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+                    self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+                    self._wandb_logger.log_metrics({
+                        f'test/available_sensors/horizon_{i+1}/mae': res[0],
+                        f'test/available_sensors/horizon_{i+1}/mape': res[1],
+                        f'test/available_sensors/horizon_{i+1}/rmse': res[2]
+                    })
+
+                res = compute_all_metrics(
+                    preds[:, :, training_available_sensors.squeeze() == 1],
+                    labels[:, :, training_available_sensors.squeeze() == 1],
+                    mask_value
+                )
+                log = 'Available Sensors - Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+                self._logger.info(log.format(res[0], res[2], res[1]))
+                self._wandb_logger.log_metrics({
+                    'test/available_sensors/avg_mae': res[0],
+                    'test/available_sensors/avg_mape': res[1],
+                    'test/available_sensors/avg_rmse': res[2]
+                })
+
+
+                ## Unavailable sensors
+
+                for i in range(self.model.horizon):
+                    res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 0], labels[:,i,training_available_sensors.squeeze() == 0], mask_value)
+                    log = '\tUnavailable Sensors - Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+                    self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+                    self._wandb_logger.log_metrics({
+                        f'test/unavailable_sensors/horizon_{i+1}/mae': res[0],
+                        f'test/unavailable_sensors/horizon_{i+1}/mape': res[1],
+                        f'test/unavailable_sensors/horizon_{i+1}/rmse': res[2]
+                    })
+
+                res = compute_all_metrics(
+                    preds[:, :, training_available_sensors.squeeze() == 0],
+                    labels[:, :, training_available_sensors.squeeze() == 0],
+                    mask_value
+                )
+                log = 'Unavailable Sensors - Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+                self._logger.info(log.format(res[0], res[2], res[1]))
+                self._wandb_logger.log_metrics({
+                    'test/unavailable_sensors/avg_mae': res[0],
+                    'test/unavailable_sensors/avg_mape': res[1],
+                    'test/unavailable_sensors/avg_rmse': res[2]
+                })
+
+            return np.mean(test_mae), np.mean(test_mape), np.mean(test_rmse)
+
+        else:
+            raise ValueError('Invalid mode {}'.format(mode))
