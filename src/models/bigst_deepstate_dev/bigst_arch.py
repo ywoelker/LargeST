@@ -6,8 +6,6 @@ import torch.nn.functional as F
 
 from src.base.model import BaseModel
 from .linear_conv import *
-from torch.autograd import Variable
-import pdb
 from .preprocess import BigSTPreprocess
 from .model import Model
 

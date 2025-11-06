@@ -67,24 +67,6 @@ def main():
     wandb_logger.log_hyperparams(vars(args))
     
     data_path, adj_path, node_num = get_dataset_info(args.dataset)
-    logger.info('Adj path: ' + adj_path)
-    
-    adj_mx = load_adj_from_numpy(adj_path)
-    adj_mx = adj_mx - np.eye(node_num)
-
-    gso = normalize_adj_mx(adj_mx, 'scalap')[0]
-    gso = torch.tensor(gso).to(device)
-
-    Ko = args.seq_len - (args.Kt - 1) * 2 * args.block_num
-    blocks = []
-    blocks.append([args.input_dim])
-    for l in range(args.block_num):
-        blocks.append([64, 16, 64])
-    if Ko == 0:
-        blocks.append([128])
-    elif Ko > 0:
-        blocks.append([128, 128])
-    blocks.append([args.horizon])
 
     dataloader, scaler = load_dataset(data_path, args, logger)
 
