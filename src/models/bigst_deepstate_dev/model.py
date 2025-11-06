@@ -375,12 +375,12 @@ class Model(nn.Module):
         self.week_num = day_of_week_size
 
         self.num_contexts = 32
-        node_emb_dim = 256
-        hid_dim = 256
+        node_emb_dim = 32
+        hid_dim = 128
         
         # node embedding layer
-        self.node_emb_layer = nn.Parameter(torch.empty(num_nodes, node_emb_dim))
-        nn.init.xavier_uniform_(self.node_emb_layer)
+        # self.node_emb_layer = nn.Parameter(torch.empty(num_nodes, node_emb_dim))
+        # nn.init.xavier_uniform_(self.node_emb_layer)
         
         self.context_emb_layer = nn.Parameter(torch.empty(self.num_contexts, node_emb_dim))
         nn.init.xavier_uniform_(self.context_emb_layer)
@@ -415,23 +415,21 @@ class Model(nn.Module):
         for i in range(self.layer_num):
             self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim))
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
-        
+
+
+        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim)
+
+        self.hid_dim_times_after_conv = 3
+        self.linear_dsn_2_obs_conv = linearized_conv(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim)
         
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
-        self.bn_context_to_obs = nn.LayerNorm(hid_dim * 4)
+        self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
         
         if self.use_long:
             self.regression_layer = nn.Conv2d(hid_dim*4*2+hid_dim+seq_num, out_dim, kernel_size=(1, 1), bias=True)
         else:
-            self.regression_layer = nn.Conv2d(hid_dim*5 + 2 * time_emb_dim + num_context, out_dim, kernel_size=(1, 1), bias=True)
+            self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + num_context, out_dim, kernel_size=(1, 1), bias=True)
 
-        self.input_fc_obs = nn.Conv2d(in_channels=num_context +  hid_dim + 2 * time_emb_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
-        self.activation_obs = nn.ReLU()
-        self.dropout_layer_obs = nn.Dropout(p=dropout)
-
-        self.input_fc_ds = nn.Conv2d(in_channels= 2 * (node_emb_dim + hid_dim), out_channels=hid_dim * 4, kernel_size=(1, 1), bias=True)
-        self.activation_ds = nn.ReLU()
-        self.dropout_layer_ds = nn.Dropout(p=dropout)
 
     def forward(self, x, feat=None):
         
@@ -475,20 +473,14 @@ class Model(nn.Module):
         # perform normal attention 
 
         queries = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
+        queries_obs = queries.permute(0, 2, 3, 1) # (B, C, 1, dim)
+        
         keys = self.W_obs_context_key(x_g) 
         keys = keys.permute(0, 2, 3, 1)# (B, N, 1, dim)
 
-        # values = x.permute(0, 2, 3, 1) # (B, N, 1, dim)
-        values = self.input_fc_obs(x)
-        values = self.activation(values)
-        values = self.dropout_layer_obs(values) # 
 
-        attention_scores = torch.einsum('bdci,bnid->bnci', queries, keys) # (B, N, C, 1)
-        attention_scores = attention_scores / math.sqrt(queries.shape[-1]) # scale the scores
-        attention_scores_source = attention_scores
-        attention_scores = F.softmax(attention_scores, dim=-1) # (B, N, 1, 1)
 
-        deepstate = torch.einsum('bnci,bdni->bdci', attention_scores, values) # (B, dim, C, 1)
+        deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys)
 
         deepstate = deepstate.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         deepstate = self.bn_obs_to_context(deepstate)
@@ -507,7 +499,7 @@ class Model(nn.Module):
         for i in range(self.layer_num):
             if self.use_residual:
                 residual = deepstate
-            deepstate, node_vec1_prime, node_vec2_prime = self.linear_conv[i](deepstate, node_vec1, node_vec2)
+            deepstate, node_vec1_prime, node_vec2_prime, _ = self.linear_conv[i](deepstate, node_vec1, node_vec2)
             
             if self.use_residual:
                 deepstate = deepstate+residual 
@@ -528,19 +520,10 @@ class Model(nn.Module):
         queries = queries.permute(0, 2, 3, 1)# (B, N, 1, dim)
 
         keys = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
+        keys = keys.permute(0, 2, 3, 1) # (B, C, 1, dim)
+       
 
-        values = deepstate.permute(0, 2, 3, 1) # (B, C, 1, 4*dim)
-
-        values = self.input_fc_ds(deepstate)
-        values = self.activation_ds(values)
-        values = self.dropout_layer_ds(values)
-
-        attention_scores = torch.einsum('bnid,bdci->bcni', queries, keys) # (B, N, C, 1)
-        attention_scores = attention_scores / math.sqrt(queries.shape[-1]) # scale the scores
-        attention_scores_target = attention_scores
-        attention_scores = F.softmax(attention_scores, dim=-1)
-
-        x = torch.einsum('bcni,bdci->bdni', attention_scores, values) # (B, 4*dim, N, 1)
+        x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys)
         
         x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         x = self.bn_context_to_obs(x)
@@ -570,5 +553,5 @@ class Model(nn.Module):
               , "supports": self.supports
               , 'use_spatial': self.use_spatial 
               , 'deep_node_vec': self.context_emb_layer
-              , 'assignment_scores_source': attention_scores_source
-              , 'assignment_scores_target': attention_scores_target}
+              , 'assignment_scores_source': assignment_scores_source
+              , 'assignment_scores_target': assignment_scores_target}

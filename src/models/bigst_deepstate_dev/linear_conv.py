@@ -28,7 +28,7 @@ def linear_kernel(x, node_vec1, node_vec2):
     out2 = torch.unsqueeze(out2, len(out2.shape))
     out = out1 / out2 # [B, N, 1, nhid]
 
-    return out
+    return out, out2
 
 # def spatial_loss(node_vec1, node_vec2, supports, edge_indices):
 #     B = node_vec1.size(0)
@@ -73,9 +73,9 @@ class conv_approximation(nn.Module):
         node_vec1_prime = random_feature_map(node_vec1, True, random_matrix) # [B, N, 1, r]
         node_vec2_prime = random_feature_map(node_vec2, False, random_matrix) # [B, N, 1, r]
         
-        x = linear_kernel(x, node_vec1_prime, node_vec2_prime)
+        x, D = linear_kernel(x, node_vec1_prime, node_vec2_prime)
         
-        return x, node_vec1_prime, node_vec2_prime
+        return x, node_vec1_prime, node_vec2_prime, D
 
 class linearized_conv(nn.Module):
     def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64):
@@ -97,7 +97,7 @@ class linearized_conv(nn.Module):
         x = self.dropout_layer(x)
         
         x = x.permute(0, 2, 3, 1) # (B, N, 1, dim*4)
-        x, node_vec1_prime, node_vec2_prime = self.conv_app_layer(x, node_vec1, node_vec2)
+        x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2)
         x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
         
-        return x, node_vec1_prime, node_vec2_prime
+        return x, node_vec1_prime, node_vec2_prime, D
