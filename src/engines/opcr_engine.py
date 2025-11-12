@@ -25,7 +25,7 @@ class OPCR_Engine(BaseEngine):
 
         if n_features > 3:
             X_other = X[..., 3:]
-            X_traffic = torch.cat([X_traffic, X_time, X_other], dim=-1)
+            X_traffic = torch.cat([X_traffic, X_other], dim=-1)
         
         # time and week are global 
         # need the shape B,T,F
