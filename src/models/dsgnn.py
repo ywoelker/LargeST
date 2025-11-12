@@ -1,0 +1,330 @@
+import math
+import numpy as np
+import torch
+import torch.nn as nn
+from torch.nn.utils.rnn import pad_sequence
+
+"""
+Start of utilitiy methods that were copied from BigST
+"""
+
+from src.base.model import BaseModel
+
+def create_products_of_givens_rotations(dim, seed):
+    nb_givens_rotations = dim * int(math.ceil(math.log(float(dim))))
+    q = np.eye(dim, dim)
+    np.random.seed(seed)
+    for _ in range(nb_givens_rotations):
+        random_angle = math.pi * np.random.uniform()
+        random_indices = np.random.choice(dim, 2)
+        index_i = min(random_indices[0], random_indices[1])
+        index_j = max(random_indices[0], random_indices[1])
+        slice_i = q[index_i]
+        slice_j = q[index_j]
+        new_slice_i = math.cos(random_angle) * slice_i + math.cos(random_angle) * slice_j
+        new_slice_j = -math.sin(random_angle) * slice_i + math.cos(random_angle) * slice_j
+        q[index_i] = new_slice_i
+        q[index_j] = new_slice_j
+    return torch.tensor(q, dtype=torch.float32)
+
+def create_random_matrix(m, d, seed:int|torch.Tensor=0, scaling=0, struct_mode=False):
+    nb_full_blocks = int(m/d)
+    block_list = []
+    current_seed = seed
+    for _ in range(nb_full_blocks):
+        torch.manual_seed(current_seed)
+        if struct_mode:
+            q = create_products_of_givens_rotations(d, current_seed)
+        else:
+            unstructured_block = torch.randn((d, d))
+            q, _ = torch.qr(unstructured_block)
+            q = torch.t(q)
+        block_list.append(q)
+        current_seed += 1
+    remaining_rows = m - nb_full_blocks * d
+    if remaining_rows > 0:
+        torch.manual_seed(current_seed)
+        if struct_mode:
+            q = create_products_of_givens_rotations(d, current_seed)
+        else:
+            unstructured_block = torch.randn((d, d))
+            q, _ = torch.qr(unstructured_block)
+            q = torch.t(q)
+        block_list.append(q[0:remaining_rows])
+    final_matrix = torch.vstack(block_list)
+
+    current_seed += 1
+    torch.manual_seed(current_seed)
+    if scaling == 0:
+        multiplier = torch.norm(torch.randn((m, d)), dim=1)
+    elif scaling == 1:
+        multiplier = torch.sqrt(torch.tensor(float(d))) * torch.ones(m)
+    else:
+        raise ValueError("Scaling must be one of {0, 1}. Was %s" % scaling)
+
+    return torch.matmul(torch.diag(multiplier), final_matrix)
+
+def random_feature_map(data, is_query, projection_matrix, numerical_stabilizer=0.000001):
+    data_normalizer = 1.0 / torch.sqrt(torch.sqrt(torch.tensor(data.shape[-1], dtype=torch.float32)))
+    data = data_normalizer * data
+    ratio = 1.0 / torch.sqrt(torch.tensor(projection_matrix.shape[0], dtype=torch.float32))
+    data_dash = torch.einsum("bnhd,md->bnhm", data, projection_matrix)
+    diag_data = torch.square(data)
+    diag_data = torch.sum(diag_data, dim=len(data.shape)-1)
+    diag_data = diag_data / 2.0
+    diag_data = torch.unsqueeze(diag_data, dim=len(data.shape)-1)
+    last_dims_t = len(data_dash.shape) - 1
+    attention_dims_t = len(data_dash.shape) - 3
+    if is_query:
+        data_dash = ratio * (
+            torch.exp(data_dash - diag_data - torch.max(data_dash, dim=last_dims_t, keepdim=True)[0]) + numerical_stabilizer
+        )
+    else:
+        data_dash = ratio * (
+            torch.exp(data_dash - diag_data - torch.max(torch.max(data_dash, dim=last_dims_t, keepdim=True)[0],
+                    dim=attention_dims_t, keepdim=True)[0]) + numerical_stabilizer
+        )
+    return data_dash
+
+def linear_kernel(x, node_vec1, node_vec2):
+    # x: [B, N, 1, nhid] node_vec1: [B, N, 1, r], node_vec2: [B, N, 1, r]
+    node_vec1 = node_vec1.permute(1, 0, 2, 3) # [N, B, 1, r]
+    node_vec2 = node_vec2.permute(1, 0, 2, 3) # [N, B, 1, r]
+    x = x.permute(1, 0, 2, 3) # [N, B, 1, nhid]
+    
+    # sum of k_m * v_m
+    v2x = torch.einsum("nbhm,nbhd->bhmd", node_vec2, x)
+    # q_t * sum^T_m k_m * v_m
+    out1 = torch.einsum("nbhm,bhmd->nbhd", node_vec1, v2x) # [N, B, 1, nhid]
+    
+    one_matrix = torch.ones([node_vec2.shape[0]]).to(node_vec1.device)
+    # sum over all N the keys = sum of k_m
+    node_vec2_sum = torch.einsum("nbhm,n->bhm", node_vec2, one_matrix)
+    # q_t * sum^T_m k_m
+    out2 = torch.einsum("nbhm,bhm->nbh", node_vec1, node_vec2_sum) # [N, 1]
+
+    out1 = out1.permute(1, 0, 2, 3)  # [B, N, 1, nhid]
+    out2 = out2.permute(1, 0, 2)
+    out2 = torch.unsqueeze(out2, len(out2.shape))
+    out = out1 / out2 # [B, N, 1, nhid]
+
+    return out, out2
+
+class conv_approximation(nn.Module):
+    def __init__(self, dropout, tau, random_feature_dim):
+        super(conv_approximation, self).__init__()
+        self.tau = tau
+        self.random_feature_dim = random_feature_dim
+        self.activation = nn.ReLU()
+        self.dropout = dropout
+
+    def forward(self, x, node_vec1, node_vec2):
+        B = x.size(0) # (B, N, 1, nhid)
+        dim = node_vec1.shape[-1] # (N, 1, d)
+        
+        random_seed = torch.ceil(torch.abs(torch.sum(node_vec1) * 1e8)).to(torch.int32)
+        random_matrix = create_random_matrix(self.random_feature_dim, dim, seed=random_seed).to(node_vec1.device) # (d, r)
+        
+        node_vec1 = node_vec1 / math.sqrt(self.tau)
+        node_vec2 = node_vec2 / math.sqrt(self.tau)
+        node_vec1_prime = random_feature_map(node_vec1, True, random_matrix) # [B, N, 1, r]
+        node_vec2_prime = random_feature_map(node_vec2, False, random_matrix) # [B, N, 1, r]
+        
+        x, D = linear_kernel(x, node_vec1_prime, node_vec2_prime)
+        
+        return x, node_vec1_prime, node_vec2_prime, D
+
+class linearized_conv(nn.Module):
+    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64):
+        super(linearized_conv, self).__init__()
+        
+        self.dropout = dropout
+        self.tau = tau
+        self.random_feature_dim = random_feature_dim
+        
+        self.input_fc = nn.Conv2d(in_channels=in_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
+        self.activation = nn.ReLU()
+        self.dropout_layer = nn.Dropout(p=dropout)
+        
+        self.conv_app_layer = conv_approximation(self.dropout, self.tau, self.random_feature_dim)
+        
+    def forward(self, input_data, node_vec1, node_vec2):
+        x = self.input_fc(input_data)
+        x = self.activation(x)
+        x = self.dropout_layer(x)
+        
+        x = x.permute(0, 2, 3, 1) # (B, N, 1, dim*4)
+        x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2)
+        x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
+        
+        return x, node_vec1_prime, node_vec2_prime, D
+
+"""
+End of utilitiy methods that were copied from BigST
+"""
+
+class DeepStateGNN(BaseModel):
+
+    def __init__(self, num_nodes, in_dim, out_dim, random_feature_dim,
+                 time_emb_dim, seq_num, node_emb_dim, use_spatial, dropout,
+                 time_of_day_size=288, day_of_week_size=7,
+                 use_residual=True, use_bn=True):
+        super(DeepStateGNN, self).__init__(num_nodes, in_dim, out_dim)
+
+        self.tau = .25
+        self.layer_num = 3
+        self.in_dim = in_dim
+        self.random_feature_dim = random_feature_dim
+        
+        self.use_residual = use_residual
+        self.use_bn = use_bn
+        
+        self.dropout = dropout
+        self.activation = nn.ReLU()
+        
+        self.time_num = time_of_day_size
+        self.week_num = day_of_week_size
+
+        self.num_contexts = 32
+        self.node_emb_dim = node_emb_dim
+        hid_dim = 128
+
+        self.use_spatial = use_spatial
+
+        self.context_emb_layer = nn.Parameter(torch.empty(self.num_contexts, node_emb_dim))
+        nn.init.xavier_uniform_(self.context_emb_layer)
+        
+        # time embedding layer
+        self.time_emb_layer = nn.Parameter(torch.empty(self.time_num, time_emb_dim))
+        nn.init.xavier_uniform_(self.time_emb_layer)
+        self.week_emb_layer = nn.Parameter(torch.empty(self.week_num, time_emb_dim))
+        nn.init.xavier_uniform_(self.week_emb_layer)
+
+        num_values = 3 # number of values in the input sequence (e.g., temperature, humidity, etc.)
+        num_context = in_dim - num_values # number of context features (e.g., time, day of week, etc.)
+
+        # embedding layer
+        self.input_emb_layer = nn.Conv2d(seq_num * num_values, hid_dim, kernel_size=(1, 1), bias=True)
+        self.contextual_emb_layer = nn.Conv2d(num_context, hid_dim, kernel_size=(1, 1), bias=True)
+
+        
+        
+        self.W_obs_context_key = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=True)
+        self.W_obs_context_query = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=True)
+        self.W_1 = nn.Conv2d(node_emb_dim, node_emb_dim, kernel_size=(1, 1), bias=True)
+        self.W_2 = nn.Conv2d(node_emb_dim, node_emb_dim, kernel_size=(1, 1), bias=True)
+        
+        self.linear_conv = nn.ModuleList()
+        self.bn = nn.ModuleList()
+        
+        for _ in range(self.layer_num):
+            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim))
+            self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
+
+
+        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim)
+
+        self.hid_dim_times_after_conv = 3
+        self.linear_dsn_2_obs_conv = linearized_conv(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim)
+        
+        self.bn_obs_to_context = nn.LayerNorm(hid_dim)
+        self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
+        
+        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + num_context, out_dim, kernel_size=(1, 1), bias=True)
+
+    def forward(self, x, feat=None):       
+        # x: (B, N, T, D)
+        B, N, T, D = x.size()
+        
+        time_emb = self.time_emb_layer[(x[:, :, -1, 1]*self.time_num).int()]
+        week_emb = self.week_emb_layer[x[:, :, -1, 2].int()]
+
+
+        x_context = x[..., -1 , 3:] # shape (B, N, D-3)
+        x_value = x[..., :3] # shape (B, N, T, 3)
+
+        # input embedding
+        x = x_value.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D*T, N, 1)
+        input_emb = self.input_emb_layer(x)
+        # context embedding
+        x_context = x_context.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D-3, N, 1)
+        # time embeddings
+        time_emb = time_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
+        week_emb = week_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
+
+        x_g = torch.cat([x_context, time_emb, week_emb], dim=1) # (B, D-3 +  dim*2, N, 1)
+        x = torch.cat([input_emb, x_context, time_emb, week_emb], dim=1) # (B, D-3 + dim*3, N, 1)
+
+        # linearized spatial convolution
+        x_pool = [x] # (B,  D-3 + dim*3, N, 1)
+
+        # mapping the node embeddings to the deep state nodes
+        queries = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
+        queries_obs = queries.permute(0, 2, 3, 1) # (B, C, 1, dim)
+        
+        keys = self.W_obs_context_key(x_g) 
+        keys = keys.permute(0, 2, 3, 1)# (B, N, 1, dim)
+
+        deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys)
+
+        deepstate = deepstate.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+        deepstate = self.bn_obs_to_context(deepstate)
+        deepstate = deepstate.permute(0, 3, 1, 2)
+
+        # merge with the original vector 
+        deepstate = torch.concat([deepstate, queries], dim=1) # (B, dim*2, C, 1)
+
+        # perform several layers of graph convolution on the deep state nodes
+        node_vec1 = self.W_1(queries) # (B, dim, N, 1)
+        node_vec2 = self.W_2(queries) # (B, dim, N, 1)
+        node_vec1 = node_vec1.permute(0, 2, 3, 1) # (B, N, 1, dim)
+        node_vec2 = node_vec2.permute(0, 2, 3, 1) # (B, N, 1, dim)
+
+
+        deepstate_pool = [deepstate] # (B, C, 1, 2dim)
+        for i in range(self.layer_num):
+            if self.use_residual:
+                residual = deepstate
+            deepstate, node_vec1_prime, node_vec2_prime, _ = self.linear_conv[i](deepstate, node_vec1, node_vec2)
+            
+            if self.use_residual:
+                deepstate = deepstate+residual 
+                
+            if self.use_bn:
+                deepstate = deepstate.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+                deepstate = self.bn[i](deepstate)
+                deepstate = deepstate.permute(0, 3, 1, 2)
+
+        deepstate_pool.append(deepstate)
+        deepstate = torch.cat(deepstate_pool, dim=1) # (B, dim*4, C, 1)
+        deepstate = self.activation(deepstate) # (B, dim*4, C, 1)
+        
+
+
+        # mapping the deepstate onto the original nodes
+        queries = self.W_obs_context_query(x_g) 
+        queries = queries.permute(0, 2, 3, 1)# (B, N, 1, dim)
+
+        keys = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
+        keys = keys.permute(0, 2, 3, 1) # (B, C, 1, dim)
+    
+        x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys)
+        
+        x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+        x = self.bn_context_to_obs(x)
+        x = x.permute(0, 3, 1, 2)
+        
+        
+        
+        x_pool.append(x)
+        x = torch.cat(x_pool, dim=1) # (B, dim*7 + D - 3, N, 1)
+        x = self.activation(x)
+
+        x = self.regression_layer(x) # (B, N, T)
+        x = x.squeeze(-1).permute(0, 2, 1)
+
+        # x = self.restore_input_shape(x, (B, N_org, T), label_mask)
+
+        return {"prediction": x.transpose(1,2).unsqueeze(-1)
+              , 'assignment_scores_source': assignment_scores_source
+              , 'assignment_scores_target': assignment_scores_target}
