@@ -8,7 +8,7 @@ import multiprocessing as mp
 from pathlib import Path
 
 class DataLoader(object):
-    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None, available_sensors = None):
+    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None, available_sensors = None, drop_unavailable_sensors = False):
         """
 
         ## Parameters
@@ -30,16 +30,30 @@ class DataLoader(object):
         self.current_ind = 0
         logger.info('Sample num: ' + str(self.idx.shape[0]) + ', Batch num: ' + str(self.num_batch))
         
+        self.available_sensors = available_sensors
+        self.drop_unavailable_sensors = drop_unavailable_sensors
+        
+        self.input_mask = input_mask
+        self.output_mask = output_mask
+
+        if self.drop_unavailable_sensors and self.available_sensors is not None:
+            logger.info('Dropping unavailable sensors from the input and output data.')
+            self.data = self.data[:, self.available_sensors.squeeze() == 1]
+            if self.input_mask is not None:
+                self.input_mask = self.input_mask[..., self.available_sensors.squeeze() == 1]
+            if self.output_mask is not None:
+                self.output_mask = self.output_mask[..., self.available_sensors.squeeze() == 1] 
+            if self.metadata is not None:
+                self.metadata = self.metadata[self.available_sensors.squeeze() == 1]
+
+
         self.x_offsets = np.arange(-(seq_len - 1), 1, 1)
         self.y_offsets = np.arange(1, (horizon + 1), 1)
         self.seq_len = seq_len
         self.horizon = horizon
 
-        self.input_mask = input_mask
-        self.output_mask = output_mask
 
         self.n_sensors = self.data.shape[1]
-        self.available_sensors = available_sensors
 
         assert self.input_mask is None or self.input_mask.shape[:2] == self.data.shape[:2]
         assert self.output_mask is None or self.output_mask.shape[:2] == self.data.shape[:2]
@@ -54,6 +68,8 @@ class DataLoader(object):
 
         if self.output_mask is not None:
             self.output_mask = self.output_mask[..., np.newaxis]
+
+
 
     def shuffle(self):
         perm = np.random.permutation(self.size)
@@ -89,7 +105,7 @@ class DataLoader(object):
 
 
             ## Remove the unavailable sensors at the end to zero out all their values
-            if self.available_sensors is not None:
+            if self.available_sensors is not None and not self.drop_unavailable_sensors:
                 tmp = tmp * self.available_sensors[np.newaxis, :, :]
                 x_mask[i] = x_mask[i] * self.available_sensors[np.newaxis, :, :]
 
@@ -159,7 +175,7 @@ class StandardScaler():
         return (data * self.std) + self.mean
 
 
-def load_dataset(data_path, args, logger):
+def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
     ptr = np.load(os.path.join(data_path, args.years, 'his.npz'), allow_pickle=True)
     logger.info('Data shape: ' + str(ptr['data'].shape))
     
@@ -203,6 +219,7 @@ def load_dataset(data_path, args, logger):
                                                  input_mask=input_mask,
                                                  output_mask=output_mask,
                                                  available_sensors = train_mask,
+                                                 drop_unavailable_sensors = drop_unavailable_sensors,
                                                  )
         else:         
             dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
