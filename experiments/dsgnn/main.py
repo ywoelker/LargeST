@@ -8,7 +8,7 @@ import sys
 sys.path.append(os.path.abspath(__file__ + '/../../..'))
 
 import torch
-torch.set_num_threads(3)
+# torch.set_num_threads(3)
 
 from src.models.dsgnn import DeepStateGNN
 from src.engines.dsgnn_engine import DSGNN_Engine
@@ -37,7 +37,10 @@ def set_seed(seed):
 """
 def get_config():
     parser = get_public_config()
-    parser.add_argument('--nhid', type=int, default=32)
+    parser.add_argument('--n_hid', type=int, default=128)
+    parser.add_argument('--n_context', type=int, default=32)
+    parser.add_argument('--n_context_emb', type=int, default=32)
+    parser.add_argument('--n_rand_dim', type=int, default=64)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
 
     parser.add_argument('--lrate', type=float, default=0.002)
@@ -82,13 +85,15 @@ def main():
                 "seq_num": args.seq_len, 
                 "in_dim": args.input_dim,
                 "out_dim": args.horizon,
-                "random_feature_dim": 64,
-                "node_emb_dim": 32,
+                "random_feature_dim": args.n_rand_dim,
+                "node_emb_dim": args.n_context_emb,
                 "time_emb_dim": 32,
                 "use_residual": True,
                 "use_bn": True,
                 "use_spatial": False,
-                "dropout": 0.3,
+                "hid_dim": args.n_hid,
+                "n_contexts": args.n_context,
+                "dropout": args.dropout,
                 "time_of_day_size": 96, 
                 "day_of_week_size": 7}
                     )

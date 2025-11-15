@@ -167,6 +167,7 @@ class DeepStateGNN(BaseModel):
 
     def __init__(self, num_nodes, in_dim, out_dim, random_feature_dim,
                  time_emb_dim, seq_num, node_emb_dim, use_spatial, dropout,
+                 n_contexts,hid_dim,
                  time_of_day_size=288, day_of_week_size=7,
                  use_residual=True, use_bn=True):
         super(DeepStateGNN, self).__init__(num_nodes, in_dim, out_dim)
@@ -185,9 +186,8 @@ class DeepStateGNN(BaseModel):
         self.time_num = time_of_day_size
         self.week_num = day_of_week_size
 
-        self.num_contexts = 32
+        self.num_contexts = n_contexts
         self.node_emb_dim = node_emb_dim
-        hid_dim = 128
 
         self.use_spatial = use_spatial
 
