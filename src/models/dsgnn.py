@@ -327,7 +327,7 @@ class DeepStateGNN(BaseModel):
         if static_prefilter is not None:
             x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, static_prefilter.T)  
         else:
-            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, None))
+            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, None)
 
         
         x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
