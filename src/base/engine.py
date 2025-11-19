@@ -124,6 +124,7 @@ class BaseEngine():
 
         
         print('Check label mask value', self.label_mask_value)
+        self.current_available_sensors = self._dataloader['train_loader'].available_sensors
         for X, label, x_mask, label_mask in tqdm(self._dataloader['train_loader'].get_iterator(),total = self._dataloader['train_loader'].num_batch, desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
             self._optimizer.zero_grad()
 
@@ -232,6 +233,7 @@ class BaseEngine():
         preds = []
         labels = []
         with torch.no_grad():
+            self.current_available_sensors = self._dataloader[mode + '_loader'].available_sensors
             for batch_i, (X, label, x_mask, label_mask) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
