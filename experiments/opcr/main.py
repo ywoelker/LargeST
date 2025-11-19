@@ -65,6 +65,7 @@ def main():
     
     adj_mx = load_adj_from_numpy(adj_path)
     adj_mx[adj_mx < args.adj_threshold] = 0
+    adj_mx = np.maximum.reduce([adj_mx, adj_mx.T]) # force to be symmetric
 
     idxs = np.nonzero(adj_mx)
     edge_index = np.stack(idxs)
@@ -79,7 +80,7 @@ def main():
         in_dim= args.input_dim - 2,
         hidden_dim = 128,
         s_layers = 3,
-        num_layers= 2,
+        num_layers= 3,
         time_dim = 2, 
         device = device,
         edge_index= edge_index,
@@ -89,9 +90,9 @@ def main():
     )
 
     loss_fn = masked_mae
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate, weight_decay=args.wdecay)
-    steps = [10, 50, 90]  # CA: [5, 50, 90], others: [10, 50, 90]
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=steps, gamma=0.1, verbose=True)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    scheduler = None# torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=steps, gamma=0.1, verbose=True)
+
 
     engine = OPCR_Engine(device=device,
                           model=model,
