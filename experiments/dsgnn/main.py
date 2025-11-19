@@ -43,6 +43,9 @@ def get_config():
     parser.add_argument('--n_rand_dim', type=int, default=64)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
 
+    parser.add_argument('--static_prefilter_mode', type = str, default= 'none', choices=['none', 'static_dsn', 'identity'], help='Whether to use static prefiltering based on static assignment matrices.')
+    parser.add_argument('--additional_loss_weight', type=float, default=0.001)
+
     parser.add_argument('--lrate', type=float, default=0.002)
     parser.add_argument('--wdecay', type=float, default=0.0001)
     parser.add_argument('--dropout', type=float, default=0.3)
@@ -79,6 +82,24 @@ def main():
    
     dataloader, scaler = load_dataset(data_path, args, logger, drop_unavailable_sensors=True)
 
+
+
+    if args.static_prefilter_mode == 'static_dsn':
+        static_assignment = np.load(os.path.join(data_path, args.years, 'static_assignment.npz'))['static_assignment_matrices']
+
+        static_dsn_count = static_assignment.shape[1]
+        args.n_context = static_dsn_count
+
+    elif args.static_prefilter_mode == 'identity':
+        static_assignment = np.eye(node_num)
+        args.n_context = node_num
+
+    else:
+        static_assignment = None
+
+
+
+
     model = DeepStateGNN(
         **{
                 "num_nodes": node_num,
@@ -102,6 +123,9 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate, weight_decay=args.wdecay, eps=1e-8)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 50], gamma=0.5)
 
+
+    if type(static_assignment) is np.ndarray:
+        static_assignment = torch.tensor(static_assignment, dtype=torch.float32, device=device)#
     
     engine = DSGNN_Engine(device=device,
                         model=model,
@@ -114,11 +138,13 @@ def main():
                         scheduler=scheduler,
                         clip_grad_value=args.clip_grad_value,
                         max_epochs=args.max_epochs,
+                        static_prefilter = static_assignment,
                         patience=args.patience,
                         log_dir=log_dir,
                         logger=logger,
                         seed=args.seed,
-                        wandb_logger=wandb_logger
+                        wandb_logger=wandb_logger,
+                        additional_loss_weight=args.additional_loss_weight,
                         )
 
     if args.mode == 'train':

@@ -86,17 +86,24 @@ def random_feature_map(data, is_query, projection_matrix, numerical_stabilizer=0
         )
     return data_dash
 
-def linear_kernel(x, node_vec1, node_vec2):
+def linear_kernel(x, node_vec1, node_vec2, filter_mat):
     # x: [B, N, 1, nhid] node_vec1: [B, N, 1, r], node_vec2: [B, N, 1, r]
     node_vec1 = node_vec1.permute(1, 0, 2, 3) # [N, B, 1, r]
     node_vec2 = node_vec2.permute(1, 0, 2, 3) # [N, B, 1, r]
     x = x.permute(1, 0, 2, 3) # [N, B, 1, nhid]
     
     # sum of k_m * v_m
-    v2x = torch.einsum("nbhm,nbhd->bhmd", node_vec2, x)
-    # q_t * sum^T_m k_m * v_m
-    out1 = torch.einsum("nbhm,bhmd->nbhd", node_vec1, v2x) # [N, B, 1, nhid]
-    
+
+    if filter_mat is not None:
+        v2x = torch.einsum("nbhm,nbhd->nbhmd", node_vec2, x)
+        # sum over all N the keys * values = sum of k_m * v_m
+        v2x = torch.einsum("nbhmd,nc->cbhmd", v2x, filter_mat) 
+        # q_t * sum^T_m k_m * v_m
+        out1 = torch.einsum("cbhm,cbhmd->cbhd", node_vec1, v2x) # [N, B, 1, nhid]
+    else: 
+        v2x = torch.einsum("nbhm,nbhd->bhmd", node_vec2, x)
+        out1 = torch.einsum("nbhm,bhmd->nbhd", node_vec1, v2x) # [N, B, 1, nhid]
+
     one_matrix = torch.ones([node_vec2.shape[0]]).to(node_vec1.device)
     # sum over all N the keys = sum of k_m
     node_vec2_sum = torch.einsum("nbhm,n->bhm", node_vec2, one_matrix)
@@ -118,7 +125,7 @@ class conv_approximation(nn.Module):
         self.activation = nn.ReLU()
         self.dropout = dropout
 
-    def forward(self, x, node_vec1, node_vec2):
+    def forward(self, x, node_vec1, node_vec2, filter_mat):
         B = x.size(0) # (B, N, 1, nhid)
         dim = node_vec1.shape[-1] # (N, 1, d)
         
@@ -130,7 +137,7 @@ class conv_approximation(nn.Module):
         node_vec1_prime = random_feature_map(node_vec1, True, random_matrix) # [B, N, 1, r]
         node_vec2_prime = random_feature_map(node_vec2, False, random_matrix) # [B, N, 1, r]
         
-        x, D = linear_kernel(x, node_vec1_prime, node_vec2_prime)
+        x, D = linear_kernel(x, node_vec1_prime, node_vec2_prime, filter_mat)
         
         return x, node_vec1_prime, node_vec2_prime, D
 
@@ -148,13 +155,13 @@ class linearized_conv(nn.Module):
         
         self.conv_app_layer = conv_approximation(self.dropout, self.tau, self.random_feature_dim)
         
-    def forward(self, input_data, node_vec1, node_vec2):
+    def forward(self, input_data, node_vec1, node_vec2, filter_mat):
         x = self.input_fc(input_data)
         x = self.activation(x)
         x = self.dropout_layer(x)
         
         x = x.permute(0, 2, 3, 1) # (B, N, 1, dim*4)
-        x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2)
+        x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2, filter_mat)
         x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
         
         return x, node_vec1_prime, node_vec2_prime, D
@@ -225,6 +232,10 @@ class DeepStateGNN(BaseModel):
         self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim)
 
         self.hid_dim_times_after_conv = 3
+
+        self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
+        self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
+
         self.linear_dsn_2_obs_conv = linearized_conv(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim)
         
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
@@ -232,7 +243,7 @@ class DeepStateGNN(BaseModel):
         
         self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + num_context, out_dim, kernel_size=(1, 1), bias=True)
 
-    def forward(self, x, feat=None):       
+    def forward(self, x, feat=None, static_prefilter = None):       
         # x: (B, N, T, D)
         B, N, T, D = x.size()
         
@@ -265,7 +276,11 @@ class DeepStateGNN(BaseModel):
         keys = self.W_obs_context_key(x_g) 
         keys = keys.permute(0, 2, 3, 1)# (B, N, 1, dim)
 
-        deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys)
+        if static_prefilter is not None:
+
+            deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys, static_prefilter)
+        else:
+            deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys, None)
 
         deepstate = deepstate.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         deepstate = self.bn_obs_to_context(deepstate)
@@ -285,7 +300,7 @@ class DeepStateGNN(BaseModel):
         for i in range(self.layer_num):
             if self.use_residual:
                 residual = deepstate
-            deepstate, node_vec1_prime, node_vec2_prime, _ = self.linear_conv[i](deepstate, node_vec1, node_vec2)
+            deepstate, node_vec1_prime, node_vec2_prime, _ = self.linear_conv[i](deepstate, node_vec1, node_vec2, None)
             
             if self.use_residual:
                 deepstate = deepstate+residual 
@@ -308,7 +323,12 @@ class DeepStateGNN(BaseModel):
         keys = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
         keys = keys.permute(0, 2, 3, 1) # (B, C, 1, dim)
     
-        x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys)
+
+        if static_prefilter is not None:
+            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, static_prefilter.T)  
+        else:
+            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, None))
+
         
         x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         x = self.bn_context_to_obs(x)
