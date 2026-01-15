@@ -8,7 +8,7 @@ import time
 # ========= CONFIG =========
 # GPUs you want to use concurrently (e.g., first five only):
 GPU_IDS = list(range(8)) # full set on the box
-MAX_CONCURRENT = 5                    # run on 5 GPUs at a time
+MAX_CONCURRENT = 6                   # run on 5 GPUs at a time
 CONDA_ENV = "pyg"
 SHELL = "zsh"                         # you said you use zsh
 RC_FILE = "~/.zshrc"                  # so conda activate works
@@ -24,8 +24,8 @@ PREFERRED_GPUS = {
 LOG_DIR = pathlib.Path("scripts_logs")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-def build_cmd(model_name: str, mask_name: str, mask_iter: int) -> tuple[str, str]:
-    job_name = f"{model_name}_{mask_name}_{mask_iter}"
+def build_cmd(model_name: str, mask_name: str, mask_iter: int, div_weight: float) -> tuple[str, str]:
+    job_name = f"{model_name}_div{div_weight}_{mask_name}_{mask_iter}"
 
     # base shell setup (zsh)
     base = (
@@ -42,6 +42,7 @@ def build_cmd(model_name: str, mask_name: str, mask_iter: int) -> tuple[str, str
         f'--mask_name {mask_name} --mask_iter {mask_iter} '
         f'--use_metadata True '
         f'--input_dim 38 '
+        f'--static_prefilter_mode static_dsn '
     )
 
     # extra args like your script
@@ -50,18 +51,22 @@ def build_cmd(model_name: str, mask_name: str, mask_iter: int) -> tuple[str, str
     elif model_name.lower() == "gman":
         cmd += " --bs 16"
     elif model_name.lower() == 'dsgnn':
-        cmd += " --n_rand_dim 16 --static_prefilter_mode static_dsn"
+        cmd += (
+            f" --n_rand_dim 16 --static_prefilter_mode static_dsn "
+            f'--n_rand_dim 16 '
+            f'--n_hid 32 '
+            f'--n_context 128 --n_context_emb 128 '
+            f'--dsn_div_weight {div_weight} '
+        )
 
     return job_name, base + cmd
 
 # Build the sweep (your same nested loops)
 JOBS: list[tuple[str, str, str]] = []
-for mask_iter in [2, 3, 4]:
-    for mask_name in ["block_missing_005", "point_missing_050", "point_missing_075", "point_missing_075_only_input", "point_missing_095"]:
-        # for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'DSTAGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN']:
-        for model_name in ['DSGNN']:
-            job_name, cmd = build_cmd(model_name, mask_name, mask_iter)
-            JOBS.append((model_name, job_name, cmd))
+for div_weight in [0.005, 0.01, 0.02, 0.05, 0.08, 0.1, 1]:
+    for model_name in ['DSGNN']:
+        job_name, cmd = build_cmd(model_name, 'point_missing_050', 2, div_weight)
+        JOBS.append((model_name, job_name, cmd))
 
 # GPU pool (all physical GPUs)
 gpu_pool = queue.Queue()

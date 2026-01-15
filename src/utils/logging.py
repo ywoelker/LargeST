@@ -50,7 +50,7 @@ def get_run_name(args) -> str:
     Args:
         args: Argument parser namespace with relevant attributes.
     """
-    run_name = f'{args.model_name}_{args.dataset}_{args.years}_{str(datetime.now().strftime("%Y-%m-%d %H:%M"))}'
+    run_name = f'{args.model_name}_{args.dataset}_{args.years}_{args.run_description}_{str(datetime.now().strftime("%Y-%m-%d %H:%M"))}'
     return run_name
 
 
@@ -132,18 +132,17 @@ class WandbLogger:
         except Exception:
             logging.getLogger(__name__).exception('Failed to log hyperparameters to wandb')
 
-    def log_metrics(self, metrics: dict):
-        """Log a dict of metrics (timestamped by wandb).
-        
-        Args:
-            metrics: dictionary of metric names to values
-        """
+    def log_metrics(self, metrics: dict, step: int = None):
         if not self.is_used:
             return
         try:
-            wandb.log(metrics)
+            if step is None:
+                wandb.log(metrics)
+            else:
+                wandb.log(metrics, step=step)
         except Exception:
             logging.getLogger(__name__).exception('Failed to log metrics to wandb')
+
 
     def log(self, key: str, value, round_idx: int = None):
         """Log a single scalar (optionally with a round/index field).
@@ -195,3 +194,13 @@ class WandbLogger:
             wandb.save(path)
         except Exception:
             logging.getLogger(__name__).exception('Failed to save file %s to wandb', path)
+
+
+    def summary(self, metrics: dict):
+        if not self.is_used:
+            return
+        try:
+            for k, v in metrics.items():
+                wandb.run.summary[k] = v
+        except Exception:
+            logging.getLogger(__name__).exception('Failed to write wandb summary')

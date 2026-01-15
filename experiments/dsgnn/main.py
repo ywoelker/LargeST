@@ -43,7 +43,7 @@ def get_config():
     parser.add_argument('--n_rand_dim', type=int, default=64)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
 
-    parser.add_argument('--static_prefilter_mode', type = str, default= 'none', choices=['none', 'static_dsn', 'identity'], help='Whether to use static prefiltering based on static assignment matrices.')
+    parser.add_argument('--static_prefilter_mode', type = str, default= 'static_dsn', choices=['none', 'static_dsn', 'identity'], help='Whether to use static prefiltering based on static assignment matrices.')
     parser.add_argument('--additional_loss_weight', type=float, default=0.001)
 
     parser.add_argument('--lrate', type=float, default=0.002)
@@ -52,6 +52,10 @@ def get_config():
     parser.add_argument('--clip_grad_value', type=float, default=5.0)
 
     parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
+
+    parser.add_argument('--dsn_div_weight', type=float, default=1e-3)
+    parser.add_argument('--dsn_div_margin', type=float, default=0.25)
+
     
     args = parser.parse_args()
     args.model_name = 'BigST_DeepState' if args.model_name == '' else args.model_name
@@ -145,6 +149,8 @@ def main():
                         seed=args.seed,
                         wandb_logger=wandb_logger,
                         additional_loss_weight=args.additional_loss_weight,
+                        dsn_div_weight = args.dsn_div_weight,
+                        dsn_div_margin = args.dsn_div_margin,
                         )
 
     if args.mode == 'train':
