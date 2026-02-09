@@ -12,6 +12,101 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": "${command:pickArgs}"
-        }
+        },
+
+        {
+
+            "name": "Debug: DCRNN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "experiments/dcrnn/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--device",
+                "cpu",
+                "--dataset",
+                "SD",
+                "--years",
+                "2019",
+                "--seed",
+                "2023",
+                "--model_name",
+                "dcrnn_tr_drop_025_01",
+                "--max_epochs",
+                "3",
+                "--mask_name",
+                "tr_drop_025",
+                "--mask_iter",
+                "0",
+                "--use_wandb",
+                "False",
+            ]
+        },{
+
+            "name": "Debug: DSGNN",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "experiments/dsgnn/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--device",
+                "cpu",
+                "--dataset",
+                "SD",
+                "--years",
+                "2019",
+                "--seed",
+                "2023",
+                "--model_name",
+                "deepstategnn_tr_drop_025_00",
+                "--max_epochs",
+                "3",
+                "--mask_name",
+                "point_missing_095",
+                "--mask_iter",
+                "0",
+                "--use_wandb",
+                "False",
+                "--use_metadata",
+                "True",
+                "--input_dim",
+                "38",
+            ]
+        }  ,{
+
+            "name": "Debug: OPCR",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "experiments/opcr/main.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--device",
+                "cpu",
+                "--dataset",
+                "SD",
+                "--years",
+                "2019",
+                "--seed",
+                "2023",
+                "--model_name",
+                "opcr_tr_drop_025_00",
+                "--max_epochs",
+                "3",
+                "--mask_name",
+                "tr_drop_025",
+                "--mask_iter",
+                "0",
+                "--use_wandb",
+                "False",
+                "--use_metadata",
+                "True",
+                "--input_dim",
+                "38",
+            ]
+        }  
+    
+    
     ]
 }
+
+

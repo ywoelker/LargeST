@@ -3,6 +3,8 @@ wandb/
 data/
 experiments/**/*.pt
 *.out
+*test.ipynb
+*.csv
 scripts/
 launch.json
 results/
