@@ -211,13 +211,19 @@ class DeepStateGNN(BaseModel):
         num_context = in_dim - num_values # number of context features (e.g., time, day of week, etc.)
 
         # embedding layer
-        self.input_emb_layer = nn.Conv2d(seq_num * num_values, hid_dim, kernel_size=(1, 1), bias=True)
-        self.contextual_emb_layer = nn.Conv2d(num_context, hid_dim, kernel_size=(1, 1), bias=True)
+        self.input_emb_layer = nn.Conv2d(seq_num * num_values, hid_dim, kernel_size=(1, 1), bias=False)
 
+
+        # Use a gating mechnism to map the observations to deep state nodes
+        self.context_processing = nn.Sequential(
+            nn.Conv2d(num_context , hid_dim, kernel_size=(1, 1), bias=False),
+            nn.ReLU(),
+            nn.Conv2d(hid_dim, num_context, kernel_size=(1, 1), bias=False),
+            nn.Tanh(),
+        )
         
-        
-        self.W_obs_context_key = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=True)
-        self.W_obs_context_query = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=True)
+        self.W_obs_context_key = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=False)
+        self.W_obs_context_query = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=False)
         self.W_1 = nn.Conv2d(node_emb_dim, node_emb_dim, kernel_size=(1, 1), bias=True)
         self.W_2 = nn.Conv2d(node_emb_dim, node_emb_dim, kernel_size=(1, 1), bias=True)
         
@@ -229,9 +235,9 @@ class DeepStateGNN(BaseModel):
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim)
+        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, 0, self.tau, self.random_feature_dim)
 
-        self.hid_dim_times_after_conv = 3
+        self.hid_dim_times_after_conv = 1
 
         self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
         self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
@@ -243,7 +249,7 @@ class DeepStateGNN(BaseModel):
         
         self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + num_context, out_dim, kernel_size=(1, 1), bias=True)
 
-    def forward(self, x, feat=None, static_prefilter = None):       
+    def forward(self, x, feat=None, static_prefilter = None, valid_observations = None):       
         # x: (B, N, T, D)
         B, N, T, D = x.size()
         
@@ -259,6 +265,7 @@ class DeepStateGNN(BaseModel):
         input_emb = self.input_emb_layer(x)
         # context embedding
         x_context = x_context.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D-3, N, 1)
+        x_context = self.context_processing(x_context) # (B, D-3, N, 1)
         # time embeddings
         time_emb = time_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
         week_emb = week_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
@@ -278,6 +285,8 @@ class DeepStateGNN(BaseModel):
 
         if static_prefilter is not None:
 
+            # deepstate = self.W_in(x)
+            # assignment_scores_source = None
             deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys, static_prefilter)
         else:
             deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys, None)
@@ -326,6 +335,8 @@ class DeepStateGNN(BaseModel):
 
         if static_prefilter is not None:
             x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, static_prefilter.T)  
+            # x = self.W_out(deepstate)
+            # assignment_scores_target = None
         else:
             x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, None)
 

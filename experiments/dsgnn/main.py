@@ -37,18 +37,18 @@ def set_seed(seed):
 """
 def get_config():
     parser = get_public_config()
-    parser.add_argument('--n_hid', type=int, default=128)
+    parser.add_argument('--n_hid', type=int, default=64)
     parser.add_argument('--n_context', type=int, default=32)
     parser.add_argument('--n_context_emb', type=int, default=32)
-    parser.add_argument('--n_rand_dim', type=int, default=64)
+    parser.add_argument('--n_rand_dim', type=int, default=96)
     parser.add_argument('--tiny_batch_size', type=int, default=64)
 
-    parser.add_argument('--static_prefilter_mode', type = str, default= 'none', choices=['none', 'static_dsn', 'identity'], help='Whether to use static prefiltering based on static assignment matrices.')
+    parser.add_argument('--static_prefilter_mode', type = str, default= 'none', choices=['none', 'static_dsn', 'identity', 'fixed'], help='Whether to use static prefiltering based on static assignment matrices.')
     parser.add_argument('--additional_loss_weight', type=float, default=0.001)
 
-    parser.add_argument('--lrate', type=float, default=0.002)
+    parser.add_argument('--lrate', type=float, default=0.005)
     parser.add_argument('--wdecay', type=float, default=0.0001)
-    parser.add_argument('--dropout', type=float, default=0.3)
+    parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--clip_grad_value', type=float, default=5.0)
 
     parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
@@ -62,6 +62,24 @@ def get_config():
     
     return args, log_dir, logger
 
+
+def create_prefilter_with_fixed_context_counter(n_sensors, n_hidden_states):
+
+    prefilter_matrix = np.zeros((n_sensors,n_hidden_states))
+
+
+    filled_columns = 0
+
+    while filled_columns < n_sensors:
+        matrix = np.eye(n_hidden_states)
+
+        delta = min(n_sensors - filled_columns, n_hidden_states)
+
+        prefilter_matrix[filled_columns: filled_columns + delta  ] = matrix[:delta]
+
+        filled_columns += n_hidden_states
+
+    return prefilter_matrix
 
 def main():
     args, log_dir, logger = get_config()
@@ -94,6 +112,10 @@ def main():
         static_assignment = np.eye(node_num)
         args.n_context = node_num
 
+    elif args.static_prefilter_mode == 'fixed':
+        static_assignment = create_prefilter_with_fixed_context_counter(node_num, args.n_context)
+
+
     else:
         static_assignment = None
 
@@ -108,7 +130,7 @@ def main():
                 "out_dim": args.horizon,
                 "random_feature_dim": args.n_rand_dim,
                 "node_emb_dim": args.n_context_emb,
-                "time_emb_dim": 32,
+                "time_emb_dim": 256,
                 "use_residual": True,
                 "use_bn": True,
                 "use_spatial": False,
@@ -121,7 +143,7 @@ def main():
     
     loss_fn = masked_mae
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lrate, weight_decay=args.wdecay, eps=1e-8)
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[25, 50], gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[3,25, 50], gamma=0.5)
 
 
     if type(static_assignment) is np.ndarray:
@@ -156,6 +178,8 @@ def main():
             engine.evaluate('test')
     else:
         engine.evaluate(args.mode)
+
+        
 
 
 if __name__ == "__main__":

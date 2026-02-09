@@ -216,10 +216,11 @@ class BaseEngine():
                 self._logger.info('Val loss decrease from {:.4f} to {:.4f}'.format(min_loss, mvalid_loss))
                 min_loss = mvalid_loss
                 wait = 0
+                self.best_epoch = self.epoch
             else:
                 wait += 1
                 if wait == self._patience:
-                    self._logger.info('Early stop at epoch {}, loss = {:.6f}'.format(self.epoch + 1, min_loss))
+                    self._logger.info('Early stop at epoch {} with best epoch being {}, loss = {:.6f}'.format(self.epoch + 1, self.best_epoch + 1, min_loss))
                     break
 
         self.evaluate('test')
