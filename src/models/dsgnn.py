@@ -254,6 +254,7 @@ class DeepStateGNN(BaseModel):
         B, N, T, D = x.size()
         
         time_emb = self.time_emb_layer[(x[:, :, -1, 1]*self.time_num).int()]
+        # TODO: why isn't week values multiplied by week_num first?
         week_emb = self.week_emb_layer[x[:, :, -1, 2].int()]
 
 
@@ -277,7 +278,9 @@ class DeepStateGNN(BaseModel):
         x_pool = [x] # (B,  D-3 + dim*3, N, 1)
 
         # mapping the node embeddings to the deep state nodes
+        # q: dsn states | keys: observation embeddings
         queries = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
+        raw_dsn = queries.permute(0, 2, 3, 1).squeeze(2) # (B, C, dim)
         queries_obs = queries.permute(0, 2, 3, 1) # (B, C, 1, dim)
         
         keys = self.W_obs_context_key(x_g) 
@@ -291,14 +294,20 @@ class DeepStateGNN(BaseModel):
         else:
             deepstate, _, _, assignment_scores_source= self.linear_obs_2_dsn_conv(x, queries_obs, keys, None)
 
+        # deepstate: weighted observations combined
         deepstate = deepstate.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         deepstate = self.bn_obs_to_context(deepstate)
         deepstate = deepstate.permute(0, 3, 1, 2)
 
+        obs_augmented_dsn = deepstate.permute(0, 2, 1, 3).squeeze(-1)  # (B, C, dim*4)
+
+
         # merge with the original vector 
+        # deepstate: concatenated combined observations with the original deepstate embeddings
         deepstate = torch.concat([deepstate, queries], dim=1) # (B, dim*2, C, 1)
 
         # perform several layers of graph convolution on the deep state nodes
+        #### Self attentiopn between DSN states begin
         node_vec1 = self.W_1(queries) # (B, dim, N, 1)
         node_vec2 = self.W_2(queries) # (B, dim, N, 1)
         node_vec1 = node_vec1.permute(0, 2, 3, 1) # (B, N, 1, dim)
@@ -322,13 +331,19 @@ class DeepStateGNN(BaseModel):
         deepstate_pool.append(deepstate)
         deepstate = torch.cat(deepstate_pool, dim=1) # (B, dim*4, C, 1)
         deepstate = self.activation(deepstate) # (B, dim*4, C, 1)
+        #### Self attentiopn between DSN states end
+
+        gnn_convolved_dsn = deepstate.permute(0, 2, 1, 3).squeeze(-1)  # (B, C, dim*4)
         
 
 
         # mapping the deepstate onto the original nodes
+        # from here now on it's the inverse. Basically from the DSN states and the context of the observations, reconstruct the original traffic features
+        # queries: embedding of the observation context
         queries = self.W_obs_context_query(x_g) 
         queries = queries.permute(0, 2, 3, 1)# (B, N, 1, dim)
 
+        # keys are the DSN states after the self-attention
         keys = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
         keys = keys.permute(0, 2, 3, 1) # (B, C, 1, dim)
     
@@ -344,9 +359,11 @@ class DeepStateGNN(BaseModel):
         x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         x = self.bn_context_to_obs(x)
         x = x.permute(0, 3, 1, 2)
+
+    #### Inverse ends
         
         
-        
+        #### Here is from BigST for a 1-1 mapping from nodes to the traffic features
         x_pool.append(x)
         x = torch.cat(x_pool, dim=1) # (B, dim*7 + D - 3, N, 1)
         x = self.activation(x)
@@ -358,4 +375,11 @@ class DeepStateGNN(BaseModel):
 
         return {"prediction": x.transpose(1,2).unsqueeze(-1)
               , 'assignment_scores_source': assignment_scores_source
-              , 'assignment_scores_target': assignment_scores_target}
+              , 'assignment_scores_target': assignment_scores_target
+              , 'dsn_states': {
+                    'raw': raw_dsn,
+                    'obs_augmented': obs_augmented_dsn,
+                    'gnn_convolved': gnn_convolved_dsn
+                    }
+}
+

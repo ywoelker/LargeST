@@ -8,6 +8,9 @@ from src.utils.metrics import masked_rmse
 from src.utils.metrics import compute_all_metrics
 from src.utils.dataloader import DataLoader
 from src.utils.logging import WandbLogger
+from collections import defaultdict
+import matplotlib.pyplot as plt
+
 
 class BaseEngine():
     def __init__(self, device, model, dataloader: dict[str,DataLoader], scaler, sampler, loss_fn, lrate, optimizer, \
@@ -95,6 +98,21 @@ class BaseEngine():
         loss = self._loss_fn(pred, label, mask_value, label_mask= self.current_label_mask)
         return loss
     
+
+    def extra_loss_and_logs(self, pred, label, mask_value, loss_container, epoch):
+        """
+        Returns:
+            extra_loss (torch.Tensor): scalar tensor to add to total loss
+            logs (dict): python floats or 0-d tensors for logging
+        """
+        return torch.tensor(0.0, device=self._device), {}
+    
+
+    def log_custom_visuals(self, epoch):
+        pass
+
+
+    
     def mask_value(self, label):
         # handle the precision issue when performing inverse transform to label
         mask_value = torch.tensor(0)
@@ -120,6 +138,7 @@ class BaseEngine():
         train_loss = []
         train_mape = []
         train_rmse = []
+        extra_logs_acc = defaultdict(list)
         self._dataloader['train_loader'].shuffle()
 
         
@@ -149,20 +168,29 @@ class BaseEngine():
 
             loss = self.loss(pred, label, mask_value, loss_container)
 
+            extra_loss, extra_logs = self.extra_loss_and_logs(pred, label, mask_value, loss_container, self.epoch)
+
+
             mape = masked_mape(pred, label, mask_value, label_mask= self.current_label_mask).item()
             rmse = masked_rmse(pred, label, mask_value, label_mask= self.current_label_mask).item()
 
-            loss.backward()
+            loss_total = loss + extra_loss
+
+            loss_total.backward()
             if self._clip_grad_value != 0:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self._clip_grad_value)
             self._optimizer.step()
 
-            train_loss.append(loss.item())
+            train_loss.append(loss_total.item())
             train_mape.append(mape)
             train_rmse.append(rmse)
 
+            # accumulate extra logs
+            for k, v in extra_logs.items():
+                extra_logs_acc[k].append(float(v))
+
             self._iter_cnt += 1
-        return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse)
+        return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse), extra_logs_acc
 
 
     def train(self):
@@ -172,17 +200,21 @@ class BaseEngine():
         min_loss = np.inf
         for self.epoch in range(self._max_epochs):
             t1 = time.time()
-            mtrain_loss, mtrain_mape, mtrain_rmse = self.train_batch()            
+            mtrain_loss, mtrain_mape, mtrain_rmse, train_extra_logs = self.train_batch()            
             t2 = time.time()
           
             # Log epoch-level training metrics
             if self._wandb_logger is not None:
-                self._wandb_logger.log_metrics({
-                    'train/loss': mtrain_loss,
-                    'train/mape': mtrain_mape,
-                    'train/rmse': mtrain_rmse,
-                    'train/time_per_epoch': t2 - t1
-                })
+                train_log = {
+                'train/loss': mtrain_loss,
+                'train/mape': mtrain_mape,
+                'train/rmse': mtrain_rmse,
+                'train/time_per_epoch': t2 - t1,
+                }
+                for k, v_list in train_extra_logs.items():
+                    train_log[f'train/{k}'] = float(np.mean(v_list))
+                self._wandb_logger.log_metrics(train_log, step=self.epoch+1)
+
 
             v1 = time.time()
             mvalid_loss, mvalid_mape, mvalid_rmse = self.evaluate('val')
@@ -204,7 +236,7 @@ class BaseEngine():
                     'val/time': v2 - v1,
                     'lr': cur_lr,
                     'epoch': self.epoch + 1
-                })
+                }, step=self.epoch+1)
                 
             message = 'Epoch: {:03d}, Train Loss: {:.4f}, Train RMSE: {:.4f}, Train MAPE: {:.4f}, Valid Loss: {:.4f}, Valid RMSE: {:.4f}, Valid MAPE: {:.4f}, Train Time: {:.4f}s/epoch, Valid Time: {:.4f}s, LR: {:.4e}'
             self._logger.info(message.format(self.epoch + 1, mtrain_loss, mtrain_rmse, mtrain_mape, \
@@ -238,7 +270,6 @@ class BaseEngine():
             for batch_i, (X, label, x_mask, label_mask) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
-
                 self.current_x_mask = self._to_device(self._to_tensor(x_mask))
                 self.current_label_mask = self._to_device(self._to_tensor(label_mask))
      
@@ -278,7 +309,7 @@ class BaseEngine():
                     f'test/horizon_{i+1}/mae': res[0],
                     f'test/horizon_{i+1}/mape': res[1],
                     f'test/horizon_{i+1}/rmse': res[2]
-                })
+                }, step=self.epoch+1)
                 test_mae.append(res[0])
                 test_mape.append(res[1])
                 test_rmse.append(res[2])
@@ -288,7 +319,7 @@ class BaseEngine():
                 'test/avg_mae': np.mean(test_mae),
                 'test/avg_mape': np.mean(test_mape),
                 'test/avg_rmse': np.mean(test_rmse)
-            })
+            }, step=self.epoch+1)
             self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))
 
 
@@ -303,7 +334,7 @@ class BaseEngine():
                         f'test/available_sensors/horizon_{i+1}/mae': res[0],
                         f'test/available_sensors/horizon_{i+1}/mape': res[1],
                         f'test/available_sensors/horizon_{i+1}/rmse': res[2]
-                    })
+                    }, step=self.epoch+1)
 
                 res = compute_all_metrics(
                     preds[:, :, training_available_sensors.squeeze() == 1],
@@ -316,7 +347,7 @@ class BaseEngine():
                     'test/available_sensors/avg_mae': res[0],
                     'test/available_sensors/avg_mape': res[1],
                     'test/available_sensors/avg_rmse': res[2]
-                })
+                }, step=self.epoch+1)
 
 
                 ## Unavailable sensors
@@ -329,7 +360,7 @@ class BaseEngine():
                         f'test/unavailable_sensors/horizon_{i+1}/mae': res[0],
                         f'test/unavailable_sensors/horizon_{i+1}/mape': res[1],
                         f'test/unavailable_sensors/horizon_{i+1}/rmse': res[2]
-                    })
+                    }, step=self.epoch+1)
 
                 res = compute_all_metrics(
                     preds[:, :, training_available_sensors.squeeze() == 0],
@@ -342,7 +373,7 @@ class BaseEngine():
                     'test/unavailable_sensors/avg_mae': res[0],
                     'test/unavailable_sensors/avg_mape': res[1],
                     'test/unavailable_sensors/avg_rmse': res[2]
-                })
+                }, step=self.epoch+1)
 
             return np.mean(test_mae), np.mean(test_mape), np.mean(test_rmse)
 

@@ -39,9 +39,7 @@ def build_cmd(model_name: str, mask_name: str, mask_iter: int) -> tuple[str, str
         f'python experiments/{model_name.lower()}/main.py '
         f'--dataset SD --years 2019 --device cuda '
         f'--model_name {model_name} --run_description {job_name} '
-        f'--mask_name {mask_name} --mask_iter {mask_iter} '
-        f'--use_metadata True '
-        f'--input_dim 38 '
+        # f'--use_metadata True'
     )
 
     # extra args like your script
@@ -49,19 +47,14 @@ def build_cmd(model_name: str, mask_name: str, mask_iter: int) -> tuple[str, str
         cmd += " --input_dim 1"
     elif model_name.lower() == "gman":
         cmd += " --bs 16"
-    elif model_name.lower() == 'dsgnn':
-        cmd += " --n_rand_dim 16 --static_prefilter_mode static_dsn"
 
     return job_name, base + cmd
 
 # Build the sweep (your same nested loops)
 JOBS: list[tuple[str, str, str]] = []
-for mask_iter in [2, 3, 4]:
-    for mask_name in ["block_missing_005", "point_missing_050", "point_missing_075", "point_missing_075_only_input", "point_missing_095"]:
-        # for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'DSTAGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN']:
-        for model_name in ['DSGNN']:
-            job_name, cmd = build_cmd(model_name, mask_name, mask_iter)
-            JOBS.append((model_name, job_name, cmd))
+for model_name in ['DSGNN', 'BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'DSTAGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode']:
+    job_name, cmd = build_cmd(model_name, "", 0)
+    JOBS.append((model_name, job_name, cmd))
 
 # GPU pool (all physical GPUs)
 gpu_pool = queue.Queue()
