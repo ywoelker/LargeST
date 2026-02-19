@@ -142,7 +142,7 @@ class DataLoader(object):
                 y_mask = np.frombuffer(y_mask_shared, dtype='b').reshape(y_mask_shape)
 
                 array_size = len(idx_ind)
-                num_threads = len(idx_ind) // 2
+                num_threads = max(len(idx_ind) // 2, 1)
                 chunk_size = array_size // num_threads
                 threads = []
                 for i in range(num_threads):
@@ -210,6 +210,11 @@ def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
 
     for cat in ['train', 'val', 'test']:
         idx = np.load(os.path.join(data_path, args.years, 'idx_' + cat + '.npy'))
+
+        if cat == 'train' and args.train_data_percentage < 1.0:
+            num_train_samples = int(len(idx) * args.train_data_percentage)
+            idx = idx[:num_train_samples]
+            logger.info(f'Using {args.train_data_percentage*100:.1f}% of the training data')
 
         if use_masks and (cat == 'train' or cat == 'val'):
             dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \

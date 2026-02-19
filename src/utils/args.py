@@ -26,6 +26,9 @@ def get_public_config():
     parser.add_argument('--mask_iter', type= int, default=0, help='Which mask to use from the mask folder.')
     parser.add_argument('--use_metadata', type=bool, default=False, help='Whether to use the metadata (e.g., time of day, day of week, etc.)')
 
+    parser.add_argument('--train_data_percentage', type=float, default=1.0, help='Percentage of training data to use (between 0 and 1)')
+
+
     def str2bool(v):
         if isinstance(v, bool):
             return v
