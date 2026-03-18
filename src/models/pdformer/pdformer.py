@@ -7,7 +7,7 @@ import torch.nn.init as init
 from functools import partial
 from logging import getLogger
 from . import loss
-from . import AbstractTrafficStateModel
+from .abstract_traffic_state_model import AbstractTrafficStateModel
 
 
 def drop_path(x, drop_prob=0., training=False):
@@ -342,8 +342,8 @@ class PDFormer(AbstractTrafficStateModel):
         self.output_dim = config.get('output_dim', 1)
         self.input_window = config.get("input_window", 12)
         self.output_window = config.get('output_window', 12)
-        add_time_in_day = config.get("add_time_in_day", True)
-        add_day_in_week = config.get("add_day_in_week", True)
+        add_time_in_day = config.get("add_time_in_day", False)
+        add_day_in_week = config.get("add_day_in_week", False)
         self.device = config.get('device', torch.device('cpu'))
         self.world_size = config.get('world_size', 1)
         self.huber_delta = config.get('huber_delta', 1)
@@ -361,23 +361,59 @@ class PDFormer(AbstractTrafficStateModel):
         if self.use_curriculum_learning:
             self._logger.info('Use use_curriculum_learning!')
 
+
+        # TODO: Changed the masks because sd_mx is normalized adjacency matrix and not distance matrix.
+        # if self.type_short_path == "dist":
+        #     distances = sd_mx[~np.isinf(sd_mx)].flatten()
+        #     std = distances.std()
+        #     std = max(std, 1e-6)
+        #     sd_mx = np.exp(-np.square(sd_mx / std))
+
+        #     self.geo_mask = torch.zeros(self.num_nodes, self.num_nodes).to(self.device)
+        #     self.geo_mask[sd_mx < self.far_mask_delta] = 1
+        #     self.geo_mask = self.geo_mask.bool()
+
+        #     self.sem_mask = None
+
+        # else:
+        #     sh_mx = sh_mx.T
+        #     self.geo_mask = torch.zeros(self.num_nodes, self.num_nodes).to(self.device)
+        #     self.geo_mask[sh_mx >= self.far_mask_delta] = 1
+        #     self.geo_mask = self.geo_mask.bool()
+
+        #     self.sem_mask = torch.ones(self.num_nodes, self.num_nodes).to(self.device)
+        #     sem_mask = self.dtw_matrix.argsort(axis=1)[:, :self.dtw_delta]
+        #     for i in range(self.sem_mask.shape[0]):
+        #         self.sem_mask[i][sem_mask[i]] = 0
+        #     self.sem_mask = self.sem_mask.bool()
+
+        # TODO: Also changed self.far_mask_delta here to make it compatible with the normalized adjacency matrix. 
+        self.far_mask_delta = config.get('far_mask_delta', 0.1)
         if self.type_short_path == "dist":
-            distances = sd_mx[~np.isinf(sd_mx)].flatten()
-            std = distances.std()
-            sd_mx = np.exp(-np.square(sd_mx / std))
-            self.far_mask = torch.zeros(self.num_nodes, self.num_nodes).to(self.device)
-            self.far_mask[sd_mx < self.far_mask_delta] = 1
-            self.far_mask = self.far_mask.bool()
-        else:
+            self.geo_mask = torch.zeros(self.num_nodes, self.num_nodes, device=self.device)
+
+            # block weak / far connections
+            self.geo_mask[sd_mx < self.far_mask_delta] = 1
+            self.geo_mask = self.geo_mask.bool()
+
+            self.sem_mask = None
+
+        elif self.type_short_path == "hop":
             sh_mx = sh_mx.T
-            self.geo_mask = torch.zeros(self.num_nodes, self.num_nodes).to(self.device)
+            self.geo_mask = torch.zeros(self.num_nodes, self.num_nodes, device=self.device)
             self.geo_mask[sh_mx >= self.far_mask_delta] = 1
             self.geo_mask = self.geo_mask.bool()
-            self.sem_mask = torch.ones(self.num_nodes, self.num_nodes).to(self.device)
+
+            self.sem_mask = torch.ones(self.num_nodes, self.num_nodes, device=self.device)
             sem_mask = self.dtw_matrix.argsort(axis=1)[:, :self.dtw_delta]
             for i in range(self.sem_mask.shape[0]):
                 self.sem_mask[i][sem_mask[i]] = 0
             self.sem_mask = self.sem_mask.bool()
+
+        else:
+            raise ValueError(f"Unsupported type_short_path: {self.type_short_path}")
+
+
 
         self.pattern_keys = torch.from_numpy(data_feature.get('pattern_keys')).float().to(self.device)
         self.pattern_embeddings = nn.ModuleList([
@@ -411,8 +447,9 @@ class PDFormer(AbstractTrafficStateModel):
             in_channels=self.skip_dim, out_channels=self.output_dim, kernel_size=1, bias=True,
         )
 
-    def forward(self, batch, lap_mx=None):
-        x = batch['X']
+    # def forward(self, batch, lap_mx=None):
+    #     x = batch['X']
+    def forward(self, x, lap_mx=None):
         T =  x.shape[1]
         x_pattern_list = []
         for i in range(self.s_attn_size):
@@ -495,10 +532,19 @@ class PDFormer(AbstractTrafficStateModel):
         else:
             return lf(y_predicted, y_true)
 
-    def calculate_loss(self, batch, batches_seen=None, lap_mx=None):
-        y_true = batch['y']
-        y_predicted = self.predict(batch, lap_mx)
-        return self.calculate_loss_without_predict(y_true, y_predicted, batches_seen)
+    # def calculate_loss(self, batch, batches_seen=None, lap_mx=None):
+    #     y_true = batch['y']
+    #     y_predicted = self.predict(batch, lap_mx)
+    #     return self.calculate_loss_without_predict(y_true, y_predicted, batches_seen)
+    def calculate_loss(self, x, y_true, batches_seen=None, lap_mx=None, set_loss='masked_mae'):
+        y_predicted = self.predict(x, lap_mx)
+        return self.calculate_loss_without_predict(y_true, y_predicted, batches_seen, set_loss=set_loss)
 
-    def predict(self, batch, lap_mx=None):
-        return self.forward(batch, lap_mx)
+    # def predict(self, batch, lap_mx=None):
+    #     return self.forward(batch, lap_mx)
+
+    def predict(self, x, lap_mx=None):
+        return self.forward(x, lap_mx)
+
+    def param_num(self):
+        return sum(param.numel() for param in self.parameters())

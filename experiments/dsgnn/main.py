@@ -12,7 +12,7 @@ import torch
 
 from src.models.dsgnn import DeepStateGNN
 from src.engines.dsgnn_engine import DSGNN_Engine
-from src.utils.args import get_public_config
+from src.utils.args import get_public_config, str2bool
 from src.utils.dataloader import load_dataset, load_adj_from_numpy, get_dataset_info
 from src.utils.graph_algo import normalize_adj_mx
 from src.utils.metrics import masked_mae
@@ -54,7 +54,8 @@ def get_config():
     parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
 
     parser.add_argument('--dsn_div_weight', type=float, default=1e-3)
-    parser.add_argument('--dsn_div_margin', type=float, default=0.25)
+    parser.add_argument('--dsn_div_margin', type=float, default=0.2)
+    parser.add_argument('--dsn_div_top_k', type=str2bool, default=True, help='Whether to use top-k in cosine repulsion DSN diversity loss or compute all pairs.')
 
     
     args = parser.parse_args()
@@ -151,6 +152,7 @@ def main():
                         additional_loss_weight=args.additional_loss_weight,
                         dsn_div_weight = args.dsn_div_weight,
                         dsn_div_margin = args.dsn_div_margin,
+                        dsn_div_top_k = args.dsn_div_top_k,
                         )
 
     if args.mode == 'train':

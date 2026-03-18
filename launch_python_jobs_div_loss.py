@@ -7,8 +7,9 @@ import time
 
 # ========= CONFIG =========
 # GPUs you want to use concurrently (e.g., first five only):
-GPU_IDS = list(range(8)) # full set on the box
-MAX_CONCURRENT = 6                   # run on 5 GPUs at a time
+# GPU_IDS = list(range(8)) # full set on the box
+GPU_IDS = [3, 7]
+MAX_CONCURRENT = 2                   # run on 5 GPUs at a time
 CONDA_ENV = "pyg"
 SHELL = "zsh"                         # you said you use zsh
 RC_FILE = "~/.zshrc"                  # so conda activate works

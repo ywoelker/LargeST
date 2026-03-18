@@ -1,5 +1,15 @@
 import argparse
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def get_public_config():
     parser = argparse.ArgumentParser()
     parser.add_argument('--device', type=str, default='')
@@ -26,15 +36,6 @@ def get_public_config():
     parser.add_argument('--mask_iter', type= int, default=0, help='Which mask to use from the mask folder.')
     parser.add_argument('--use_metadata', type=bool, default=False, help='Whether to use the metadata (e.g., time of day, day of week, etc.)')
 
-    def str2bool(v):
-        if isinstance(v, bool):
-            return v
-        if v.lower() in ('yes', 'true', 't', 'y', '1'):
-            return True
-        elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-            return False
-        else:
-            raise argparse.ArgumentTypeError('Boolean value expected.')
 
     # Add wandb arguments
     parser.add_argument('--use_wandb', type=str2bool, default=True,
