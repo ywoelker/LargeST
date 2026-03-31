@@ -27,6 +27,7 @@ def get_public_config():
     parser.add_argument('--use_metadata', type=bool, default=False, help='Whether to use the metadata (e.g., time of day, day of week, etc.)')
 
     parser.add_argument('--train_data_percentage', type=float, default=1.0, help='Percentage of training data to use (between 0 and 1)')
+    parser.add_argument('--training_timeout_min', type=int, default=None, help='Timeout for the training phase in minutes. If None or 0, no timeout is implied.')
 
 
     def str2bool(v):

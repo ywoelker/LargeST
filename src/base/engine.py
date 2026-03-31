@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 class BaseEngine():
     def __init__(self, device, model, dataloader: dict[str,DataLoader], scaler, sampler, loss_fn, lrate, optimizer, \
-                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger:WandbLogger):
+                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger:WandbLogger, training_timeout_min:int):
         super().__init__()
         self._device = device
         self.model = model
@@ -36,6 +36,7 @@ class BaseEngine():
         self._logger = logger
         self._seed = seed
         self._wandb_logger = wandb_logger
+        self._training_timeout_min = training_timeout_min
 
         self.label_mask_value = self._scaler.transform(torch.tensor([0])).to(self._device)[0].to(torch.float)
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
@@ -198,6 +199,9 @@ class BaseEngine():
 
         wait = 0
         min_loss = np.inf
+
+        t0 = time.time()
+
         for self.epoch in range(self._max_epochs):
             t1 = time.time()
             mtrain_loss, mtrain_mape, mtrain_rmse, train_extra_logs = self.train_batch()            
@@ -254,6 +258,12 @@ class BaseEngine():
                 if wait == self._patience:
                     self._logger.info('Early stop at epoch {} with best epoch being {}, loss = {:.6f}'.format(self.epoch + 1, self.best_epoch + 1, min_loss))
                     break
+
+            t_timeout = time.time()
+
+            if self._training_timeout_min is not None and self._training_timeout_min > 0 and t_timeout - t0 > self._training_timeout_min * 60:
+                self._logger.info('Timeout reached. Ending training at epoch {} with best epoch being {}, loss = {:.6f}'.format(self.epoch + 1, self.best_epoch + 1, min_loss))
+                break
 
         self.evaluate('test')
 

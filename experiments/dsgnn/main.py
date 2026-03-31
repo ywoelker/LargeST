@@ -37,11 +37,10 @@ def set_seed(seed):
 """
 def get_config():
     parser = get_public_config()
-    parser.add_argument('--n_hid', type=int, default=64)
+    parser.add_argument('--n_hid', type=int, default=16)
     parser.add_argument('--n_context', type=int, default=32)
-    parser.add_argument('--n_context_emb', type=int, default=32)
-    parser.add_argument('--n_rand_dim', type=int, default=96)
-    parser.add_argument('--tiny_batch_size', type=int, default=64)
+    parser.add_argument('--n_context_emb', type=int, default=64)
+    parser.add_argument('--n_rand_dim', type=int, default=128)
 
     parser.add_argument('--static_prefilter_mode', type = str, default= 'static_dsn', choices=['none', 'static_dsn', 'identity', 'fixed'], help='Whether to use static prefiltering based on static assignment matrices.')
     parser.add_argument('--additional_loss_weight', type=float, default=0.001)
@@ -134,7 +133,7 @@ def main():
                 "out_dim": args.horizon,
                 "random_feature_dim": args.n_rand_dim,
                 "node_emb_dim": args.n_context_emb,
-                "time_emb_dim": 256,
+                "time_emb_dim": 16,
                 "use_residual": True,
                 "use_bn": True,
                 "use_spatial": False,
@@ -170,6 +169,7 @@ def main():
                         logger=logger,
                         seed=args.seed,
                         wandb_logger=wandb_logger,
+                        training_timeout_min=args.training_timeout_min,
                         additional_loss_weight=args.additional_loss_weight,
                         dsn_div_weight = args.dsn_div_weight,
                         dsn_div_margin = args.dsn_div_margin,

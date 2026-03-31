@@ -108,7 +108,8 @@ def main():
                         log_dir=log_dir,
                         logger=logger,
                         seed=args.seed,
-                        wandb_logger=wandb_logger
+                        wandb_logger=wandb_logger,
+                        training_timeout_min=args.training_timeout_min
                         )
 
     if args.mode == 'train':

@@ -111,7 +111,8 @@ def main():
                             cl_step=cl_step,
                             warm_step=warm_step,
                             horizon=args.horizon,
-                            wandb_logger=wandb_logger
+                            wandb_logger=wandb_logger,
+                            training_timeout_min=args.training_timeout_min
                             )
 
     if args.mode == 'train':

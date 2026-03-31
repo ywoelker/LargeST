@@ -86,21 +86,22 @@ def main():
 
     # ---- engine ----
     engine = GMAN_Engine(device=device,
-                         model=model,
-                         dataloader=dataloader,
-                         scaler=scaler,
-                         sampler=None,
-                         loss_fn=loss_fn,
-                         lrate=args.lrate,
-                         optimizer=optimizer,
-                         scheduler=scheduler,
-                         clip_grad_value=args.clip_grad_value,
-                         max_epochs=args.max_epochs,
-                         patience=args.patience,
-                         log_dir=log_dir,
-                         logger=logger,
-                         seed=args.seed,
-                         wandb_logger=wandb_logger)
+                        model=model,
+                        dataloader=dataloader,
+                        scaler=scaler,
+                        sampler=None,
+                        loss_fn=loss_fn,
+                        lrate=args.lrate,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        clip_grad_value=args.clip_grad_value,
+                        max_epochs=args.max_epochs,
+                        patience=args.patience,
+                        log_dir=log_dir,
+                        logger=logger,
+                        seed=args.seed,
+                        wandb_logger=wandb_logger,
+                        training_timeout_min=args.training_timeout_min)
 
     if args.mode == 'train':
         try:

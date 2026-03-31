@@ -116,7 +116,8 @@ def main():
                           seed=args.seed,
                           step_size=args.step_size,
                           horizon=args.horizon,
-                          wandb_logger=wandb_logger
+                          wandb_logger=wandb_logger,
+                          training_timeout_min=args.training_timeout_min
                           )
 
     if args.mode == 'train':

@@ -19,6 +19,8 @@ from src.utils.metrics import masked_mae
 from src.utils.logging import get_logger
 from fastdtw import fastdtw
 
+from tqdm import trange
+
 
 def set_seed(seed):
     np.random.seed(seed)
@@ -101,7 +103,8 @@ def main():
                         log_dir=log_dir,
                         logger=logger,
                         seed=args.seed,
-                        wandb_logger=wandb_logger
+                        wandb_logger=wandb_logger,
+                        training_timeout_min=args.training_timeout_min
                         )
 
     if args.mode == 'train':
@@ -124,8 +127,10 @@ def construct_se_matrix(data_path, args):
     data_mean = data_mean.T
     
     dist_matrix = np.zeros((node_num, node_num))
-    for i in range(node_num):
+    for i in trange(node_num):
         for j in range(i, node_num):
+            if j < i:
+                continue
             dist_matrix[i][j] = fastdtw(data_mean[i], data_mean[j], radius=6)[0]
 
     for i in range(node_num):
