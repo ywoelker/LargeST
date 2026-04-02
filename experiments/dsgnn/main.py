@@ -4,6 +4,7 @@ import numpy as np
 import uuid
 from datetime import datetime
 
+
 import sys
 sys.path.append(os.path.abspath(__file__ + '/../../..'))
 
@@ -12,7 +13,7 @@ import torch
 
 from src.models.dsgnn import DeepStateGNN
 from src.engines.dsgnn_engine import DSGNN_Engine
-from src.utils.args import get_public_config
+from src.utils.args import get_public_config, str2bool
 from src.utils.dataloader import load_dataset, load_adj_from_numpy, get_dataset_info
 from src.utils.graph_algo import normalize_adj_mx
 from src.utils.metrics import masked_mae
@@ -54,6 +55,9 @@ def get_config():
 
     parser.add_argument('--dsn_div_weight', type=float, default=1e-3)
     parser.add_argument('--dsn_div_margin', type=float, default=0.25)
+
+    parser.add_argument('--gcn_layers', type=int, default=3, help='Number of GCN layers. Also 0 layers is available')
+    parser.add_argument('--adding_query_to_dsn', type=str2bool, help='Whether to concatenate the query to the deep state node embeddings before feeding into GCN layers.', default= True)
 
     
     args = parser.parse_args()
@@ -133,6 +137,8 @@ def main():
                 "out_dim": args.horizon,
                 "random_feature_dim": args.n_rand_dim,
                 "node_emb_dim": args.n_context_emb,
+                "layer_num": args.gcn_layers,
+                "adding_query_to_dsn": args.adding_query_to_dsn,
                 "time_emb_dim": 16,
                 "use_residual": True,
                 "use_bn": True,

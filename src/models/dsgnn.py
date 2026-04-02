@@ -176,11 +176,11 @@ class DeepStateGNN(BaseModel):
                  time_emb_dim, seq_num, node_emb_dim, use_spatial, dropout,
                  n_contexts,hid_dim,
                  time_of_day_size=288, day_of_week_size=7,
-                 use_residual=True, use_bn=True):
+                 use_residual=True, use_bn=True, layer_num=3, adding_query_to_dsn = True):
         super(DeepStateGNN, self).__init__(num_nodes, in_dim, out_dim)
 
         self.tau = .25
-        self.layer_num = 3
+        self.layer_num = layer_num
         self.in_dim = in_dim
         self.random_feature_dim = random_feature_dim
         
@@ -197,6 +197,7 @@ class DeepStateGNN(BaseModel):
         self.node_emb_dim = node_emb_dim
 
         self.use_spatial = use_spatial
+        self.adding_query_to_dsn = adding_query_to_dsn
 
         self.context_emb_layer = nn.Parameter(torch.empty(self.num_contexts, node_emb_dim))
         nn.init.xavier_uniform_(self.context_emb_layer)
@@ -235,7 +236,7 @@ class DeepStateGNN(BaseModel):
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, 0, self.tau, self.random_feature_dim)
+        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim)
 
         self.hid_dim_times_after_conv = 1
 
@@ -304,7 +305,11 @@ class DeepStateGNN(BaseModel):
 
         # merge with the original vector 
         # deepstate: concatenated combined observations with the original deepstate embeddings
-        deepstate = torch.concat([deepstate, queries], dim=1) # (B, dim*2, C, 1)
+
+        if self.adding_query_to_dsn:
+            deepstate = torch.concat([deepstate, queries], dim=1) # (B, dim*2, C, 1)
+        else:
+            deepstate = torch.concat([deepstate, torch.zeros_like(queries)], dim=1) # (B, dim*2, C, 1)
 
         # perform several layers of graph convolution on the deep state nodes
         #### Self attentiopn between DSN states begin
