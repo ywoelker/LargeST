@@ -143,6 +143,14 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": ["--device", "cuda", "--dataset", "SD", "--n_hid", "32", "--n_context", "100", "--n_context_emb", "128"]
+        },
+                {
+            "name": "PDFormer debugger",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": ["--device", "cuda:6", "--dataset", "SD", "--years", "2019", "--bs", "16", "--enc_depth", "3"]
         }
     ]
 }

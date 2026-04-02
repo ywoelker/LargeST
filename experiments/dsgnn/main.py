@@ -54,7 +54,8 @@ def get_config():
     parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
 
     parser.add_argument('--dsn_div_weight', type=float, default=1e-3)
-    parser.add_argument('--dsn_div_margin', type=float, default=0.25)
+    parser.add_argument('--dsn_div_margin', type=float, default=0.2)
+    parser.add_argument('--dsn_div_top_k', type=str2bool, default=True, help='Whether to use top-k in cosine repulsion DSN diversity loss or compute all pairs.')
 
     parser.add_argument('--gcn_layers', type=int, default=3, help='Number of GCN layers. Also 0 layers is available')
     parser.add_argument('--adding_query_to_dsn', type=str2bool, help='Whether to concatenate the query to the deep state node embeddings before feeding into GCN layers.', default= True)
@@ -179,6 +180,7 @@ def main():
                         additional_loss_weight=args.additional_loss_weight,
                         dsn_div_weight = args.dsn_div_weight,
                         dsn_div_margin = args.dsn_div_margin,
+                        dsn_div_top_k = args.dsn_div_top_k,
                         )
 
     if args.mode == 'train':

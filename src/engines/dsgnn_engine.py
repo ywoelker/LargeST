@@ -9,13 +9,14 @@ from src.utils.metrics import compute_all_metrics
 
 
 class DSGNN_Engine(BaseEngine):
-    def __init__(self, static_prefilter, additional_loss_weight, dsn_div_weight, dsn_div_margin, **args):
+    def __init__(self, static_prefilter, additional_loss_weight, dsn_div_weight, dsn_div_margin, dsn_div_top_k, **args):
         super(DSGNN_Engine, self).__init__(**args)
 
         self.static_prefilter = static_prefilter
         self.additional_loss_weight = additional_loss_weight
         self.dsn_div_weight = dsn_div_weight
         self.dsn_div_margin = dsn_div_margin
+        self.dsn_div_top_k = dsn_div_top_k
         self.embedding_evolution = {}
 
     def forward(self, X, label, isTrain = False):
@@ -47,27 +48,42 @@ class DSGNN_Engine(BaseEngine):
         except Exception:
             return a
 
-    def cosine_repulsion_loss(self, Z, margin=0.3, eps=1e-8):
+    def cosine_repulsion_loss(self, Z, margin=0.3, eps=1e-8, top_k=False, k=None):
         """
         Compute the cosine repulsion loss for the given embeddings Z. That is, we want to push embeddings apart if their cosine similarity is above a margin.
         Args:
             Z (torch.Tensor): Node embeddings of shape (N, D).
             margin (float): Margin for repulsion.
             eps (float): Small value to avoid division by zero.
+            If top_k=True: penalize only top-k most similar off-diagonal pairs per batch element.
 
         Returns:
             torch.Tensor: The computed cosine repulsion loss.
         """
-        Z = Z / (Z.norm(dim=-1, keepdim=True) + eps)    # normalize vectors
-        G = Z @ Z.transpose(-1, -2) # [B, C, C] cosine sim
-        C = G.size(-1)
-        eye = torch.eye(C, device=Z.device, dtype=Z.dtype).unsqueeze(0)
-        off = G - eye # zero diagonal
+        if Z.dim() == 2:
+            Z = Z.unsqueeze(0)  # [1, C, D]
 
-        # Only punish too-similar pairs
-        # TODO: We should first square and then remove the margin.
-        # return (torch.relu(off - margin) ** 2).sum(dim=(-1, -2)).mean() / (C * (C - 1))
-        return (torch.relu(off**2 - margin**2)).sum(dim=(-1, -2)).mean() / (C * (C - 1))
+        B, C, D = Z.shape
+
+        Z = Z / (Z.norm(dim=-1, keepdim=True) + eps)   # [B, C, D]
+        G = Z @ Z.transpose(-1, -2)                    # [B, C, C]
+
+        eye = torch.eye(C, device=Z.device, dtype=torch.bool).unsqueeze(0)  # [1, C, C]
+
+        if top_k:
+            if k is None:
+                k = min(4 * C, C * (C - 1))
+
+            G2 = G.masked_fill(eye, float("-inf"))       # remove diagonal
+            vals = G2.reshape(B, -1)                     # [B, C*C]
+            topk_vals, _ = torch.topk(vals, k=k, dim=-1) # [B, k]
+            loss = (torch.relu(topk_vals - margin) ** 2).mean()
+        else:
+            G2 = G.masked_fill(eye, 0.0)                 # zero diagonal
+            loss = (torch.relu(G2 - margin) ** 2).sum(dim=(-1, -2)).mean() / (C * (C - 1))
+
+        return loss
+
 
 
     def get_div_weight(self,epoch, w_target, start=10, ramp=10):
@@ -96,7 +112,7 @@ class DSGNN_Engine(BaseEngine):
 
         # DSN diversity regularizer to let DSN states be different
         dsn = pred_dict['dsn_states']
-        div_loss = self.cosine_repulsion_loss(dsn['obs_augmented'], margin=self.dsn_div_margin)
+        div_loss = self.cosine_repulsion_loss(dsn['obs_augmented'], margin=self.dsn_div_margin, top_k=self.dsn_div_top_k)
 
         # total = loss + additional_loss + self.dsn_div_weight * div_loss
         div_loss_weight = self.get_div_weight(epoch, self.dsn_div_weight)
