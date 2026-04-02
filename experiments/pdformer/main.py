@@ -52,7 +52,7 @@ def get_config():
     parser.add_argument('--step_size', type=int, default=2500)
     parser.add_argument('--max_epoch', type=int, default=200)
 
-    parser.add_argument('--far_mask_delta', type=float, default=5)
+    parser.add_argument('--far_mask_delta', type=float, default=0.25)
     parser.add_argument('--dtw_delta', type=int, default=5)
     parser.add_argument('--random_flip', type=str2bool, default=True)
     parser.add_argument('--set_loss', type=str, default='masked_mae')

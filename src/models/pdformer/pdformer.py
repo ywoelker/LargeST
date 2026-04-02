@@ -517,6 +517,7 @@ class PDFormer(AbstractTrafficStateModel):
 
     def calculate_loss_without_predict(self, y_true, y_predicted, batches_seen=None, set_loss='masked_mae'):
         lf = self.get_loss_func(set_loss=set_loss)
+        # TODO: Whether or not to unnormalize before calculating loss?ß
         y_true = self._scaler.inverse_transform(y_true[..., :self.output_dim])
         y_predicted = self._scaler.inverse_transform(y_predicted[..., :self.output_dim])
         if self.training:
