@@ -146,6 +146,8 @@ def main():
         lape_dim=args.lape_dim,
         random_flip=args.random_flip,
         set_loss=args.set_loss,
+        training_timeout_min=args.training_timeout_min,
+        
     )
 
     if args.mode == 'train':
