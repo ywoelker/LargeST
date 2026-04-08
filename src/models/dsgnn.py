@@ -37,7 +37,7 @@ def create_random_matrix(m, d, seed:int|torch.Tensor=0, scaling=0, struct_mode=F
             q = create_products_of_givens_rotations(d, current_seed)
         else:
             unstructured_block = torch.randn((d, d))
-            q, _ = torch.qr(unstructured_block)
+            q, _ = torch.linalg.qr(unstructured_block)
             q = torch.t(q)
         block_list.append(q)
         current_seed += 1
@@ -48,7 +48,7 @@ def create_random_matrix(m, d, seed:int|torch.Tensor=0, scaling=0, struct_mode=F
             q = create_products_of_givens_rotations(d, current_seed)
         else:
             unstructured_block = torch.randn((d, d))
-            q, _ = torch.qr(unstructured_block)
+            q, _ = torch.linalg.qr(unstructured_block)
             q = torch.t(q)
         block_list.append(q[0:remaining_rows])
     final_matrix = torch.vstack(block_list)
@@ -124,18 +124,24 @@ class conv_approximation(nn.Module):
         self.random_feature_dim = random_feature_dim
         self.activation = nn.ReLU()
         self.dropout = dropout
-
+        
+        self.random_matrix = None
+        
     def forward(self, x, node_vec1, node_vec2, filter_mat):
-        B = x.size(0) # (B, N, 1, nhid)
+        # B = x.size(0) # (B, N, 1, nhid)
         dim = node_vec1.shape[-1] # (N, 1, d)
         
-        random_seed = torch.ceil(torch.abs(torch.sum(node_vec1) * 1e8)).to(torch.int32)
-        random_matrix = create_random_matrix(self.random_feature_dim, dim, seed=random_seed).to(node_vec1.device) # (d, r)
+        if self.random_matrix is None:
+            
+            random_seed = torch.ceil(torch.abs(torch.sum(node_vec1) * 1e8)).to(torch.int32)
+            self.random_matrix = create_random_matrix(self.random_feature_dim, dim, seed=random_seed).to(node_vec1.device) # (d, r)
+        
+        
         
         node_vec1 = node_vec1 / math.sqrt(self.tau)
         node_vec2 = node_vec2 / math.sqrt(self.tau)
-        node_vec1_prime = random_feature_map(node_vec1, True, random_matrix) # [B, N, 1, r]
-        node_vec2_prime = random_feature_map(node_vec2, False, random_matrix) # [B, N, 1, r]
+        node_vec1_prime = random_feature_map(node_vec1, True, self.random_matrix) # [B, N, 1, r]
+        node_vec2_prime = random_feature_map(node_vec2, False, self.random_matrix) # [B, N, 1, r]
         
         x, D = linear_kernel(x, node_vec1_prime, node_vec2_prime, filter_mat)
         
@@ -287,6 +293,7 @@ class DeepStateGNN(BaseModel):
         # mapping the node embeddings to the deep state nodes
         # q: dsn states | keys: observation embeddings
         queries = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
+        
         raw_dsn = queries.permute(0, 2, 3, 1).squeeze(2) # (B, C, dim)
         queries_obs = queries.permute(0, 2, 3, 1) # (B, C, 1, dim)
         
@@ -311,6 +318,10 @@ class DeepStateGNN(BaseModel):
 
         # merge with the original vector 
         # deepstate: concatenated combined observations with the original deepstate embeddings
+        node_vec1 = self.W_1(queries) # (B, dim, N, 1)
+        node_vec2 = self.W_2(queries) # (B, dim, N, 1)
+        node_vec1 = node_vec1.permute(0, 2, 3, 1) # (B, N, 1, dim)
+        node_vec2 = node_vec2.permute(0, 2, 3, 1) # (B, N, 1, dim)
 
         if self.adding_query_to_dsn:
             deepstate = torch.concat([deepstate, queries], dim=1) # (B, dim*2, C, 1)
@@ -319,10 +330,7 @@ class DeepStateGNN(BaseModel):
 
         # perform several layers of graph convolution on the deep state nodes
         #### Self attentiopn between DSN states begin
-        node_vec1 = self.W_1(queries) # (B, dim, N, 1)
-        node_vec2 = self.W_2(queries) # (B, dim, N, 1)
-        node_vec1 = node_vec1.permute(0, 2, 3, 1) # (B, N, 1, dim)
-        node_vec2 = node_vec2.permute(0, 2, 3, 1) # (B, N, 1, dim)
+        
 
 
         deepstate_pool = [deepstate] # (B, C, 1, 2dim)
@@ -357,7 +365,6 @@ class DeepStateGNN(BaseModel):
         # keys are the DSN states after the self-attention
         keys = self.context_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, C, 1)
         keys = keys.permute(0, 2, 3, 1) # (B, C, 1, dim)
-    
 
         if static_prefilter is not None:
             x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, static_prefilter.T)  
@@ -376,6 +383,7 @@ class DeepStateGNN(BaseModel):
         x_conv = x_conv.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
         x_conv = self.bn_context_to_obs(x_conv)
         x_conv = x_conv.permute(0, 3, 1, 2)
+        
 
     #### Inverse ends
         
