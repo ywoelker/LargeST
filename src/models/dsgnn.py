@@ -188,7 +188,7 @@ class DeepStateGNN(BaseModel):
         self.random_feature_dim = random_feature_dim
         
         self.use_residual = use_residual
-        self.use_bn = use_bn+
+        self.use_bn = use_bn
         
         self.dropout = dropout
         self.activation = nn.ReLU()
@@ -222,12 +222,15 @@ class DeepStateGNN(BaseModel):
         self.context_processing = nn.Sequential(
             nn.Conv2d(num_context , hid_dim, kernel_size=(1, 1), bias=False),
             nn.ReLU(),
-            nn.Conv2d(hid_dim, num_context, kernel_size=(1, 1), bias=False),
-            nn.Tanh(),
+            nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=False),
+            nn.ReLU(),
+            nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=False),
+            nn.ReLU(),
+            # nn.Tanh(),
         )
         
-        self.W_obs_context_key = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=False)
-        self.W_obs_context_query = nn.Conv2d(num_context+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=False)
+        self.W_obs_context_key = nn.Conv2d(hid_dim+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=False)
+        self.W_obs_context_query = nn.Conv2d(hid_dim+time_emb_dim*2, node_emb_dim, kernel_size=(1, 1), bias=False)
         self.W_1 = nn.Conv2d(node_emb_dim, node_emb_dim, kernel_size=(1, 1), bias=True)
         self.W_2 = nn.Conv2d(node_emb_dim, node_emb_dim, kernel_size=(1, 1), bias=True)
         
@@ -239,19 +242,19 @@ class DeepStateGNN(BaseModel):
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=False)
+        self.linear_obs_2_dsn_conv = linearized_conv(hid_dim +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=True)
 
         self.hid_dim_times_after_conv = 1
 
-        self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
-        self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
+        # self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
+        # self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
 
-        self.linear_dsn_2_obs_conv = linearized_conv(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim)
+        self.linear_dsn_2_obs_conv = linearized_conv( (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim)
         
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
         self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
         
-        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + num_context, out_dim, kernel_size=(1, 1), bias=True)
+        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + hid_dim, out_dim, kernel_size=(1, 1), bias=True)
 
     def forward(self, x, feat=None, static_prefilter = None, valid_observations = None):       
         # x: (B, N, T, D)
@@ -338,7 +341,7 @@ class DeepStateGNN(BaseModel):
 
         deepstate_pool.append(deepstate)
         deepstate = torch.cat(deepstate_pool, dim=1) # (B, dim*4, C, 1)
-        deepstate = self.activation(deepstate) # (B, dim*4, C, 1)
+        # deepstate = self.activation(deepstate) # (B, dim*4, C, 1)
         #### Self attentiopn between DSN states end
 
         gnn_convolved_dsn = deepstate.permute(0, 2, 1, 3).squeeze(-1)  # (B, C, dim*4)
@@ -357,22 +360,28 @@ class DeepStateGNN(BaseModel):
     
 
         if static_prefilter is not None:
-            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, static_prefilter.T)  
+            x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, static_prefilter.T)  
+            x_conv, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[1], queries, keys, static_prefilter.T)  
             # x = self.W_out(deepstate)
             # assignment_scores_target = None
         else:
-            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, None)
+            x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, None)
+            x_conv, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[1], queries, keys, None)
 
         
-        x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
-        x = self.bn_context_to_obs(x)
-        x = x.permute(0, 3, 1, 2)
+        x_org = x_org.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+        x_org = self.bn_context_to_obs(x_org)
+        x_org = x_org.permute(0, 3, 1, 2)
+        
+        x_conv = x_conv.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+        x_conv = self.bn_context_to_obs(x_conv)
+        x_conv = x_conv.permute(0, 3, 1, 2)
 
     #### Inverse ends
         
         
         #### Here is from BigST for a 1-1 mapping from nodes to the traffic features
-        x_pool.append(x)
+        x_pool.append(x_org + x_conv)
         x = torch.cat(x_pool, dim=1) # (B, dim*7 + D - 3, N, 1)
         x = self.activation(x)
 

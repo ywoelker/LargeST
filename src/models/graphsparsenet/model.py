@@ -93,7 +93,7 @@ class GSNet(BaseModel):
         input_emb = self.input_emb_layer(x)
 
         # node embeddings
-        node_emb = self.node_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
+        node_emb = torch.zeros_like(self.node_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1)) # (B, dim, N, 1)
 
         source_emb = self.source_emb_layer.unsqueeze(0).expand(B, -1, -1).transpose(1, 2).unsqueeze(-1) # (B, dim, dim, 1)
         target_emb = self.target_emb_layer
