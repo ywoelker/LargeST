@@ -53,7 +53,7 @@ def get_config():
 
     parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
 
-    parser.add_argument('--dsn_div_weight', type=float, default=1e-3)
+    parser.add_argument('--dsn_div_weight', type=float, default=0.1)
     parser.add_argument('--dsn_div_margin', type=float, default=0.2)
     parser.add_argument('--dsn_div_top_k', type=str2bool, default=True, help='Whether to use top-k in cosine repulsion DSN diversity loss or compute all pairs.')
 
