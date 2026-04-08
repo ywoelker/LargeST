@@ -113,7 +113,7 @@ def linear_kernel(x, node_vec1, node_vec2, filter_mat):
     out1 = out1.permute(1, 0, 2, 3)  # [B, N, 1, nhid]
     out2 = out2.permute(1, 0, 2)
     out2 = torch.unsqueeze(out2, len(out2.shape))
-    out = out1 / out2 # [B, N, 1, nhid]
+    out = out1 #/ out2 # [B, N, 1, nhid]
 
     return out, out2
 
@@ -142,12 +142,13 @@ class conv_approximation(nn.Module):
         return x, node_vec1_prime, node_vec2_prime, D
 
 class linearized_conv(nn.Module):
-    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64):
+    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64, non_linaerity = True):
         super(linearized_conv, self).__init__()
         
         self.dropout = dropout
         self.tau = tau
         self.random_feature_dim = random_feature_dim
+        self.non_linaerity = non_linaerity
         
         self.input_fc = nn.Conv2d(in_channels=in_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
         self.activation = nn.ReLU()
@@ -157,8 +158,10 @@ class linearized_conv(nn.Module):
         
     def forward(self, input_data, node_vec1, node_vec2, filter_mat):
         x = self.input_fc(input_data)
-        x = self.activation(x)
-        x = self.dropout_layer(x)
+        
+        if self.non_linaerity:
+            x = self.activation(x)
+            x = self.dropout_layer(x)
         
         x = x.permute(0, 2, 3, 1) # (B, N, 1, dim*4)
         x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2, filter_mat)
@@ -232,11 +235,11 @@ class DeepStateGNN(BaseModel):
         self.bn = nn.ModuleList()
         
         for _ in range(self.layer_num):
-            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim))
+            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=False))
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim)
+        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linaerity=False)
 
         self.hid_dim_times_after_conv = 1
 

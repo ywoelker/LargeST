@@ -40,8 +40,8 @@ def get_config():
     parser = get_public_config()
     parser.add_argument('--n_hid', type=int, default=16)
     parser.add_argument('--n_context', type=int, default=32)
-    parser.add_argument('--n_context_emb', type=int, default=64)
-    parser.add_argument('--n_rand_dim', type=int, default=128)
+    parser.add_argument('--n_context_emb', type=int, default=32)
+    parser.add_argument('--n_rand_dim', type=int, default=64)
 
     parser.add_argument('--static_prefilter_mode', type = str, default= 'static_dsn', choices=['none', 'static_dsn', 'identity', 'fixed'], help='Whether to use static prefiltering based on static assignment matrices.')
     parser.add_argument('--additional_loss_weight', type=float, default=0.001)
@@ -147,7 +147,7 @@ def main():
                 "hid_dim": args.n_hid,
                 "n_contexts": args.n_context,
                 "dropout": args.dropout,
-                "time_of_day_size": 96, 
+                "time_of_day_size": 288, 
                 "day_of_week_size": 7}
                     )
     
