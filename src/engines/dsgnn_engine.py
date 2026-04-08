@@ -94,39 +94,39 @@ class DSGNN_Engine(BaseEngine):
 
     
 
-    def extra_loss_and_logs(self, pred, label, mask_value, loss_container, epoch):
-        pred_dict = loss_container
+    # def extra_loss_and_logs(self, pred, label, mask_value, loss_container, epoch):
+    #     pred_dict = loss_container
 
-        # loss = super(DSGNN_Engine, self).loss(pred, label, mask_value, loss_container)
+    #     # loss = super(DSGNN_Engine, self).loss(pred, label, mask_value, loss_container)
 
-        if pred_dict['assignment_scores_source'] is None or pred_dict['assignment_scores_target'] is None:
-            additional_loss = 0.0
-        else:
-            mean_source_attention = torch.norm(pred_dict['assignment_scores_source'], p = 1)
-            mean_target_attention = torch.norm(pred_dict['assignment_scores_target'], p = 1)
+    #     if pred_dict['assignment_scores_source'] is None or pred_dict['assignment_scores_target'] is None:
+    #         additional_loss = 0.0
+    #     else:
+    #         mean_source_attention = torch.norm(pred_dict['assignment_scores_source'], p = 1)
+    #         mean_target_attention = torch.norm(pred_dict['assignment_scores_target'], p = 1)
 
-            additional_loss = self.additional_loss_weight * ( mean_source_attention + mean_target_attention)
+    #         additional_loss = self.additional_loss_weight * ( mean_source_attention + mean_target_attention)
 
-        if self.static_prefilter is not None:
-            additional_loss /= self.model.num_contexts
+    #     if self.static_prefilter is not None:
+    #         additional_loss /= self.model.num_contexts
 
-        # DSN diversity regularizer to let DSN states be different
-        dsn = pred_dict['dsn_states']
-        div_loss = self.cosine_repulsion_loss(dsn['obs_augmented'], margin=self.dsn_div_margin, top_k=self.dsn_div_top_k)
+    #     # DSN diversity regularizer to let DSN states be different
+    #     dsn = pred_dict['dsn_states']
+    #     div_loss = self.cosine_repulsion_loss(dsn['obs_augmented'], margin=self.dsn_div_margin, top_k=self.dsn_div_top_k)
 
-        # total = loss + additional_loss + self.dsn_div_weight * div_loss
-        div_loss_weight = self.get_div_weight(epoch, self.dsn_div_weight)
-        total = additional_loss + div_loss_weight * div_loss
+    #     # total = loss + additional_loss + self.dsn_div_weight * div_loss
+    #     div_loss_weight = self.get_div_weight(epoch, self.dsn_div_weight)
+    #     total = additional_loss + div_loss_weight * div_loss
 
-        # storring to log later
-        add_logs = {
-        'dsn_div_loss': div_loss.detach().item(),
-        'dsn_div_loss_weighted': (self.dsn_div_weight * div_loss).detach().item(),
-        'additional_loss': additional_loss.detach().item(),
-            }
+    #     # storring to log later
+    #     add_logs = {
+    #     'dsn_div_loss': div_loss.detach().item(),
+    #     'dsn_div_loss_weighted': (self.dsn_div_weight * div_loss).detach().item(),
+    #     'additional_loss': additional_loss.detach().item(),
+    #         }
 
 
-        return total, add_logs
+    #     return total, add_logs
     
     
 

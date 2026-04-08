@@ -142,13 +142,13 @@ class conv_approximation(nn.Module):
         return x, node_vec1_prime, node_vec2_prime, D
 
 class linearized_conv(nn.Module):
-    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64, non_linaerity = True):
+    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64, non_linearity = True):
         super(linearized_conv, self).__init__()
         
         self.dropout = dropout
         self.tau = tau
         self.random_feature_dim = random_feature_dim
-        self.non_linaerity = non_linaerity
+        self.non_linearity = non_linearity  
         
         self.input_fc = nn.Conv2d(in_channels=in_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
         self.activation = nn.ReLU()
@@ -159,7 +159,7 @@ class linearized_conv(nn.Module):
     def forward(self, input_data, node_vec1, node_vec2, filter_mat):
         x = self.input_fc(input_data)
         
-        if self.non_linaerity:
+        if self.non_linearity:
             x = self.activation(x)
             x = self.dropout_layer(x)
         
@@ -188,7 +188,7 @@ class DeepStateGNN(BaseModel):
         self.random_feature_dim = random_feature_dim
         
         self.use_residual = use_residual
-        self.use_bn = use_bn
+        self.use_bn = use_bn+
         
         self.dropout = dropout
         self.activation = nn.ReLU()
@@ -239,7 +239,7 @@ class DeepStateGNN(BaseModel):
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linaerity=False)
+        self.linear_obs_2_dsn_conv = linearized_conv(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=False)
 
         self.hid_dim_times_after_conv = 1
 
