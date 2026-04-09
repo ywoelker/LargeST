@@ -139,8 +139,8 @@ class GSNet(BaseModel):
                 x_k = self.bn_k[i](x_k)
                 x_k = x_k.permute(0, 3, 1, 2)
 
-        # x_pool.append(x)
-        x_pool.append(x_k)
+        x_pool.append(x)
+        # x_pool.append(x_k)
         x = torch.cat(x_pool, dim=1) # (B, dim*4, N, 1)
         
         x = self.activation(x) # (B, dim*4, N, 1)
