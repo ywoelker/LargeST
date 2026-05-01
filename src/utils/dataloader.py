@@ -235,6 +235,15 @@ def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
                                                  output_mask=output_mask,
                                                  available_sensors = None
                                                  )
+            if cat == 'test':
+                dataloader['benchmark_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
+                                                    args.seq_len, args.horizon, args.bs, logger, 
+                                                    metadata = metadata, 
+                                                    metadata_dict = metadata_dict, 
+                                                    input_mask=input_mask,
+                                                    output_mask=output_mask,
+                                                    available_sensors = None
+                                                    )
 
     scaler = StandardScaler(mean=ptr['mean'], std=ptr['std'])
     return dataloader, scaler

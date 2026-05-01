@@ -12,9 +12,13 @@ class DeepStateGNN_Engine(BaseEngine):
     def __init__(self, **args):
         super(DeepStateGNN_Engine, self).__init__(**args)
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, query_node = None):
         pred = self.model(X, label)
         pred = torch.stack(pred, dim = 0)
+        
+        if query_node is not None:
+            pred = pred[:, :, query_node, :]
+            label = label[:, :, query_node, :]
 
 
 

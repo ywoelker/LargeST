@@ -102,7 +102,7 @@ def main():
     data_path, _, node_num = get_dataset_info(args.dataset)
 
     dataloader, scaler, data_feature = load_dataset(
-        data_path, args, logger, drop_unavailable_sensors=True
+        data_path, args, logger, drop_unavailable_sensors=False
     )
 
     model_config = vars(args).copy()

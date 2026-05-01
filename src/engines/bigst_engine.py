@@ -9,9 +9,13 @@ class BigST_Engine(BaseEngine):
         super(BigST_Engine, self).__init__(**args)
 
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, query_node = None):
         pred_dict = self.model(X, label)
         pred = pred_dict['prediction']
+        
+        if query_node is not None:
+            pred = pred[:, :, query_node, :]
+            label = label[:, :, query_node, :]
 
 
         return pred, label, pred_dict

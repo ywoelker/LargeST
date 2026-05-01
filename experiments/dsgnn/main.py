@@ -44,7 +44,7 @@ def get_config():
     parser.add_argument('--n_rand_dim', type=int, default=64)
 
     parser.add_argument('--static_prefilter_mode', type = str, default= 'static_dsn', choices=['none', 'static_dsn', 'identity', 'fixed'], help='Whether to use static prefiltering based on static assignment matrices.')
-    parser.add_argument('--additional_loss_weight', type=float, default=0.001)
+    parser.add_argument('--additional_loss_weight', type=float, default=0.0)
 
     parser.add_argument('--lrate', type=float, default=0.005)
     parser.add_argument('--wdecay', type=float, default=0.0001)
@@ -140,7 +140,7 @@ def main():
                 "node_emb_dim": args.n_context_emb,
                 "layer_num": args.gcn_layers,
                 "adding_query_to_dsn": args.adding_query_to_dsn,
-                "time_emb_dim": 16,
+                "time_emb_dim": 8,
                 "use_residual": True,
                 "use_bn": True,
                 "use_spatial": False,

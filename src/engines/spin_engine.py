@@ -7,7 +7,7 @@ class SPIN_Engine(BaseEngine):
         super(SPIN_Engine, self).__init__(**args)
         self.edge_index = edge_index    
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, query_node = None):
 
         # X = X.permute(0, 2,1,3)  # (B, N, T, F)
         # label = label.permute(0,2,1,3)
@@ -46,5 +46,9 @@ class SPIN_Engine(BaseEngine):
 
         # pred = pred.permute(0, 2, 1, 3)
         # label = label.permute(0, 2, 1, 3)
+        
+        if query_node is not None:
+            predictions = predictions[:, :, query_node, :]
+            label = label[:, :, query_node, :]
         
         return predictions, label, None

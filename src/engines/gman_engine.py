@@ -33,11 +33,15 @@ class GMAN_Engine(BaseEngine):
         dow_all = torch.cat([dow, dow_f], dim=1)
         return torch.stack([dow_all, tod_all], dim=-1)  # [B, his+horizon, 2]
 
-    def forward(self, X, label, isTrain=False):
+    def forward(self, X, label, isTrain=False, query_node=None):
         
         X_input = X[..., 0]  # [B, his, N]
         TE = self.build_te(X, horizon=self.model.horizon)
 
         pred = self.model(X_input, TE)
+        
+        if query_node is not None:
+            pred = pred[:, :, query_node]
+            label = label[:, :, query_node]
 
         return pred.unsqueeze(-1), label, None

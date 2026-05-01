@@ -11,7 +11,7 @@ class D2STGNN_Engine(BaseEngine):
         self._cl_len = 0
 
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, query_node = None):
         pred = self.model(X, label)
 
         if self._iter_cnt < self._warm_step:
@@ -25,6 +25,10 @@ class D2STGNN_Engine(BaseEngine):
         if isTrain:
             pred = pred[:, :self._cl_len, :, :]
             label = label[:, :self._cl_len, :, :]   
+            
+        if query_node is not None:
+            pred = pred[:, :, query_node, :]
+            label = label[:, :, query_node, :]
 
 
         return pred, label, None

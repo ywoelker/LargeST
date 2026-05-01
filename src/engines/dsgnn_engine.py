@@ -19,7 +19,7 @@ class DSGNN_Engine(BaseEngine):
         self.dsn_div_top_k = dsn_div_top_k
         self.embedding_evolution = {}
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, **kwargs):
 
         if self.static_prefilter is not None:
             static_assignment = self.static_prefilter
@@ -30,8 +30,11 @@ class DSGNN_Engine(BaseEngine):
         else:
             static_assignment = None
 
-
-        pred_dict = self.model(X.transpose(1,2), label, static_prefilter = static_assignment)
+        if kwargs.get('query_node', None) is not None:
+            query_node = kwargs['query_node']
+            pred_dict = self.model(X.transpose(1,2), label, static_prefilter = static_assignment, query_index = query_node)
+        else: 
+            pred_dict = self.model(X.transpose(1,2), label, static_prefilter = static_assignment)
         pred = pred_dict['prediction']
 
 
@@ -99,16 +102,17 @@ class DSGNN_Engine(BaseEngine):
 
         # loss = super(DSGNN_Engine, self).loss(pred, label, mask_value, loss_container)
 
-        if pred_dict['assignment_scores_source'] is None or pred_dict['assignment_scores_target'] is None:
-            additional_loss = 0.0
-        else:
-            mean_source_attention = torch.norm(pred_dict['assignment_scores_source'], p = 1)
-            mean_target_attention = torch.norm(pred_dict['assignment_scores_target'], p = 1)
+        # if pred_dict['assignment_scores_source'] is None or pred_dict['assignment_scores_target'] is None:
+        #     additional_loss = 0.0
+        # else:
+        #     mean_source_attention = torch.norm(pred_dict['assignment_scores_source'], p = 1)
+        #     mean_target_attention = torch.norm(pred_dict['assignment_scores_target'], p = 1)
 
-            additional_loss = self.additional_loss_weight * ( mean_source_attention + mean_target_attention)
+        #     additional_loss = self.additional_loss_weight * ( mean_source_attention + mean_target_attention)
 
-        if self.static_prefilter is not None:
-            additional_loss /= self.model.num_contexts
+        # if self.static_prefilter is not None:
+        #     additional_loss /= self.model.num_contexts
+        additional_loss = 0.0
 
         # DSN diversity regularizer to let DSN states be different
         dsn = pred_dict['dsn_states']
@@ -122,7 +126,7 @@ class DSGNN_Engine(BaseEngine):
         add_logs = {
         'dsn_div_loss': div_loss.detach().item(),
         'dsn_div_loss_weighted': (self.dsn_div_weight * div_loss).detach().item(),
-        'additional_loss': additional_loss.detach().item(),
+        'additional_loss': 0.0,#additional_loss.detach().item(),
             }
 
 
@@ -256,7 +260,7 @@ class DSGNN_Engine(BaseEngine):
         print((labels == mask_value).sum())
 
         if mode == 'val':
-            self.log_val_obs_augmented_cosine_heatmap(epoch=self.epoch + 1, log_every=1, max_contexts=500)
+            # self.log_val_obs_augmented_cosine_heatmap(epoch=self.epoch + 1, log_every=1, max_contexts=500)
             mae = masked_mae(preds, labels, mask_value).item()
             mape = masked_mape(preds, labels, mask_value).item()
             rmse = masked_rmse(preds, labels, mask_value).item()

@@ -47,9 +47,9 @@ class BaseEngine():
 
     def _to_device(self, tensors):
         if isinstance(tensors, list):
-            return [tensor.to(self._device) for tensor in tensors]
+            return [tensor.to(self._device, non_blocking = True) for tensor in tensors]
         else:
-            return tensors.to(self._device)
+            return tensors.to(self._device, non_blocking = True)
 
 
     def _to_numpy(self, tensors):
@@ -89,9 +89,14 @@ class BaseEngine():
             os.path.join(save_path, filename)))   
         
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, query_node = None):
         # TODO: inverse transform of the label after the masking create mean values which are not masked.
         pred = self.model(X, label)
+        
+        if query_node is not None:
+            pred = pred[:, :, query_node, :]
+            label = label[:, :, query_node, :]
+        
         return pred, label, None
     
  
@@ -266,6 +271,8 @@ class BaseEngine():
                 break
 
         self.evaluate('test')
+        
+        self.benchmark_inference_time(self._dataloader['benchmark_loader'])
 
 
     def evaluate(self, mode) -> tuple:
@@ -389,3 +396,41 @@ class BaseEngine():
 
         else:
             raise ValueError('Invalid mode {}'.format(mode))
+        
+        
+        
+        
+        
+        
+    def benchmark_inference_time(self, data_loader) -> tuple:
+        
+        self.load_model(self._save_path)
+        self.model.eval()
+        
+        # assert data_loader.bs == 1, "For benchmarking inference time, please set batch size to 1 to get more accurate measurement."
+        
+        query_nodes = np.random.randint(0, data_loader.n_sensors, (data_loader.num_batch,))
+
+        with torch.no_grad():
+            self.current_available_sensors = data_loader.available_sensors
+            inference_time_numbers = [] 
+            for batch_i, (X, label, x_mask, label_mask) in enumerate(data_loader.get_iterator()):
+                # X (b, t, n, f), label (b, t, n, 1)
+                X, label = self._to_device(self._to_tensor([X, label]))
+                self.current_x_mask = self._to_device(self._to_tensor(x_mask))
+                self.current_label_mask = self._to_device(self._to_tensor(label_mask))
+     
+     
+                v1 = time.time()
+                pred, label, _ = self.forward(X, label, isTrain=False, query_node=query_nodes[batch_i])
+                
+                v2 = time.time()
+                inference_time_numbers.append(v2 - v1)
+                pred, label = self._inverse_transform([pred, label])
+
+        self._wandb_logger.log_metrics({
+            f'benchmark/inference_time_mean': np.mean(inference_time_numbers),
+            f'benchmark/inference_time_std': np.std(inference_time_numbers)
+        }, step=self.epoch+1)
+        
+        return np.mean(inference_time_numbers), np.std(inference_time_numbers)

@@ -113,6 +113,7 @@ def linear_kernel(x, node_vec1, node_vec2, filter_mat):
 
     return out, out2
 
+
 class conv_approximation(nn.Module):
     def __init__(self, dropout, tau, random_feature_dim):
         super().__init__()
@@ -151,7 +152,7 @@ class conv_approximation(nn.Module):
         return x, node_vec1_prime, node_vec2_prime, D
 
 class linearized_conv(nn.Module):
-    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64, non_linearity = True):
+    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64, non_linearity = True, key_dim = None):
         super(linearized_conv, self).__init__()
         
         self.dropout = dropout
@@ -160,10 +161,13 @@ class linearized_conv(nn.Module):
         self.non_linearity = non_linearity  
         
         self.input_fc = nn.Conv2d(in_channels=in_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
+        self.output_fc = nn.Conv2d(in_channels=key_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
         self.activation = nn.ReLU()
         self.dropout_layer = nn.Dropout(p=dropout)
         
         self.conv_app_layer = conv_approximation(self.dropout, self.tau, self.random_feature_dim)
+        
+        self.attention_layer = nn.MultiheadAttention(embed_dim=key_dim, num_heads=1, dropout=dropout, batch_first=True, vdim=hid_dim, kdim=key_dim)
         
     def forward(self, input_data, node_vec1, node_vec2, filter_mat):
         x = self.input_fc(input_data)
@@ -174,7 +178,24 @@ class linearized_conv(nn.Module):
         
         x = x.permute(0, 2, 3, 1) # (B, N, 1, dim*4)
         x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2, filter_mat)
+        
+        # x = x.squeeze(2) # (B, N, dim*4)
+        # node_vec1 = node_vec1.squeeze(2) # (B, N, dim)
+        # node_vec2 = node_vec2.squeeze(2) # (B, N, dim)
+        
+        # if filter_mat is None:
+        #     x, attn_weights = self.attention_layer(node_vec1, node_vec2, x, need_weights=True) # (B, N, dim)
+        # else:
+            
+        #     filter_mat_attention  = torch.zeros_like(filter_mat, dtype = torch.bool)
+        #     filter_mat_attention[filter_mat < 1e-8] = True
+        #     x, attn_weights =  self.attention_layer(node_vec1, node_vec2, x, need_weights=True, attn_mask=filter_mat_attention.T) # (B, N, dim)
+                
+        # x = x.unsqueeze(2) # (B, N, 1, dim)
+        
         x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
+        
+        # x = self.output_fc(x) # (B, dim, N, 1)
         
         return x, node_vec1_prime, node_vec2_prime, D
 
@@ -232,9 +253,9 @@ class DeepStateGNN(BaseModel):
             nn.Conv2d(num_context , hid_dim, kernel_size=(1, 1), bias=False),
             nn.ReLU(),
             nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=False),
-            nn.ReLU(),
-            nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=False),
-            nn.ReLU(),
+            # nn.ReLU(),
+            # nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=False),
+            # nn.ReLU(),
             # nn.Tanh(),
         )
         
@@ -247,25 +268,27 @@ class DeepStateGNN(BaseModel):
         self.bn = nn.ModuleList()
         
         for _ in range(self.layer_num):
-            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=False))
+            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=False, key_dim = node_emb_dim))
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
+            
+        
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(hid_dim +  hid_dim + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=True)
+        self.linear_obs_2_dsn_conv = linearized_conv(hid_dim  + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=True, key_dim = node_emb_dim)
 
         self.hid_dim_times_after_conv = 1
 
         # self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
         # self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
 
-        self.linear_dsn_2_obs_conv = linearized_conv( (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim)
+        self.linear_dsn_2_obs_conv = linearized_conv( (node_emb_dim + hid_dim) * 2, hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim, key_dim = node_emb_dim)
         
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
         self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
         
-        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim + hid_dim, out_dim, kernel_size=(1, 1), bias=True)
+        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim , out_dim, kernel_size=(1, 1), bias=True)
 
-    def forward(self, x, feat=None, static_prefilter = None, valid_observations = None):       
+    def forward(self, x, feat=None, static_prefilter = None, valid_observations = None, query_index = None):       
         # x: (B, N, T, D)
         B, N, T, D = x.size()
         
@@ -276,6 +299,8 @@ class DeepStateGNN(BaseModel):
 
         x_context = x[..., -1 , 3:] # shape (B, N, D-3)
         x_value = x[..., :3] # shape (B, N, T, 3)
+        
+        assert torch.any(torch.isnan(x_value)) == False, "Input contains NaN values"
 
         # input embedding
         x = x_value.contiguous().view(B, N, -1).transpose(1, 2).unsqueeze(-1) # (B, D*T, N, 1)
@@ -288,10 +313,13 @@ class DeepStateGNN(BaseModel):
         week_emb = week_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
 
         x_g = torch.cat([x_context, time_emb, week_emb], dim=1) # (B, D-3 +  dim*2, N, 1)
-        x = torch.cat([input_emb, x_context, time_emb, week_emb], dim=1) # (B, D-3 + dim*3, N, 1)
+        x = torch.cat([input_emb + x_context, time_emb, week_emb], dim=1) # (B, D-3 + dim*3, N, 1)
 
         # linearized spatial convolution
-        x_pool = [x] # (B,  D-3 + dim*3, N, 1)
+        if query_index is not None:
+            x_pool = [x[:,:, query_index:query_index+1, :]] # (B,  D-3 + dim*3, 1, 1)
+        else:
+            x_pool = [x] # (B,  D-3 + dim*3, N, 1)
 
         # mapping the node embeddings to the deep state nodes
         # q: dsn states | keys: observation embeddings
@@ -362,6 +390,9 @@ class DeepStateGNN(BaseModel):
         # mapping the deepstate onto the original nodes
         # from here now on it's the inverse. Basically from the DSN states and the context of the observations, reconstruct the original traffic features
         # queries: embedding of the observation context
+        if query_index is not None:
+            x_g = x_g[:,:, query_index:query_index+1, :] # (B, 1, N, 1)
+            static_prefilter = static_prefilter[ query_index:query_index+1, :] # (N, 1)
         queries = self.W_obs_context_query(x_g) 
         queries = queries.permute(0, 2, 3, 1)# (B, N, 1, dim)
 
@@ -370,29 +401,46 @@ class DeepStateGNN(BaseModel):
         keys = keys.permute(0, 2, 3, 1) # (B, C, 1, dim)
 
         if static_prefilter is not None:
-            x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, static_prefilter.T)  
-            x_conv, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[1], queries, keys, static_prefilter.T)  
+            # x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, static_prefilter.T)  
+            # x_conv, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[1], queries, keys, static_prefilter.T)  
+            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, static_prefilter.T)
             # x = self.W_out(deepstate)
             # assignment_scores_target = None
+            
+            x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+            # split the x into half in the last dimesion and add both halfs up
+            
+            # x = torch.split(x, x.shape[-1] // 2, dim=3)            
+            # x = x[0] + x[1] # (B, C, 1, dim*4)
+            
+            x = self.bn_context_to_obs(x)
+            x = x.permute(0, 3, 1, 2)
         else:
-            x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, None)
-            x_conv, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[1], queries, keys, None)
+            
+            x, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate, queries, keys, None)
+            
+            # x_org, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[0], queries, keys, None)
+            # x_conv, _, _, assignment_scores_target= self.linear_dsn_2_obs_conv(deepstate_pool[1], queries, keys, None)
 
         
-        x_org = x_org.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
-        x_org = self.bn_context_to_obs(x_org)
-        x_org = x_org.permute(0, 3, 1, 2)
+            # x_org = x_org.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+            # x_org = self.bn_context_to_obs(x_org)
+            # x_org = x_org.permute(0, 3, 1, 2)
+            
+            # x_conv = x_conv.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+            # x_conv = self.bn_context_to_obs(x_conv)
+            # x_conv = x_conv.permute(0, 3, 1, 2)
         
-        x_conv = x_conv.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
-        x_conv = self.bn_context_to_obs(x_conv)
-        x_conv = x_conv.permute(0, 3, 1, 2)
-        
+            x = x.permute(0, 2, 3, 1) # (B, C, 1, dim*4)
+            x = self.bn_context_to_obs(x)
+            x = x.permute(0, 3, 1, 2)
+
 
     #### Inverse ends
         
         
         #### Here is from BigST for a 1-1 mapping from nodes to the traffic features
-        x_pool.append(x_org + x_conv)
+        x_pool.append(x) # + x_org) # (B, dim*4 + dim*4, N, 1)
         x = torch.cat(x_pool, dim=1) # (B, dim*7 + D - 3, N, 1)
         x = self.activation(x)
 

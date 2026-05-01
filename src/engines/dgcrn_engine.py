@@ -10,7 +10,7 @@ class DGCRN_Engine(BaseEngine):
         self._task_level = 0
 
 
-    def forward(self, X, label, isTrain = False):
+    def forward(self, X, label, isTrain = False, query_node = None):
 
         if self._iter_cnt % self._step_size == 0 and self._task_level < self._horizon:
                 self._task_level += 1
@@ -22,5 +22,9 @@ class DGCRN_Engine(BaseEngine):
 
         else: 
             pred = self.model(X, label)
+            
+        if query_node is not None:
+            pred = pred[:, :, query_node, :]
+            label = label[:, :, query_node, :]
 
         return pred, label, None

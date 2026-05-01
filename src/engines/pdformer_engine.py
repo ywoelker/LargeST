@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import scipy.sparse as sp
+from tqdm import tqdm
 
 from src.base.engine import BaseEngine
 from src.utils.metrics import masked_mape, masked_mae, masked_rmse, compute_all_metrics
@@ -49,9 +50,13 @@ class PDFormer_Engine(BaseEngine):
             lap_mx = lap_mx * sign_flip.unsqueeze(0)
         return lap_mx
 
-    def forward(self, X, label, isTrain=False):
+    def forward(self, X, label, isTrain=False, query_node=None):
         lap_mx = self._get_lap_mx(is_train=isTrain)
         pred = self.model(X, lap_mx=lap_mx)
+        
+        if query_node is not None:
+            pred = pred[:, :, query_node, :]
+            label = label[:, :, query_node, :]
         return pred, label, None
 
     def train_batch(self):
@@ -63,7 +68,7 @@ class PDFormer_Engine(BaseEngine):
         train_mape = []
         train_rmse = []
 
-        for X, label, x_mask, label_mask in self._dataloader['train_loader'].get_iterator():
+        for X, label, x_mask, label_mask in tqdm(self._dataloader['train_loader'].get_iterator(),total = self._dataloader['train_loader'].num_batch, desc=f'Training - {train_loss[-1] if len(train_loss) > 0 else "N/A"}'):
             self._optimizer.zero_grad()
 
             X, label = self._to_device(self._to_tensor([X, label]))
