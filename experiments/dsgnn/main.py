@@ -51,7 +51,7 @@ def get_config():
     parser.add_argument('--dropout', type=float, default=0.0)
     parser.add_argument('--clip_grad_value', type=float, default=5.0)
 
-    parser.add_argument('--model_description', type=str, default='bigst_deepstate_dev')
+    parser.add_argument('--model_description', type=str, default='DeepStateGNN')
 
     parser.add_argument('--dsn_div_weight', type=float, default=0.1)
     parser.add_argument('--dsn_div_margin', type=float, default=0.2)
@@ -60,9 +60,10 @@ def get_config():
     parser.add_argument('--gcn_layers', type=int, default=3, help='Number of GCN layers. Also 0 layers is available')
     parser.add_argument('--adding_query_to_dsn', type=str2bool, help='Whether to concatenate the query to the deep state node embeddings before feeding into GCN layers.', default= True)
 
+    parser.add_argument('--attention_method', type=str, default='MLA', choices=['MLA', 'MHA'], help='Method to compute attention weights in the DSN. Masked Linear Attention (MLA) as part of the submission. Multi-Head Attention (MHA) as an additional experiment.')
     
     args = parser.parse_args()
-    args.model_name = 'BigST_DeepState' if args.model_name == '' else args.model_name
+    args.model_name = 'DSGNN' if args.model_name == '' else args.model_name
 
     log_dir = './results/{}/{}/{}_{}/'.format(args.dataset, args.model_name,datetime.now().strftime('%m-%d_%H-%M-%S'), str(uuid.uuid4())[-6:])
     logger = get_logger(log_dir, __name__, 'record_s{}.log'.format(args.seed))
@@ -147,6 +148,7 @@ def main():
                 "hid_dim": args.n_hid,
                 "n_contexts": args.n_context,
                 "dropout": args.dropout,
+                "attention_method": args.attention_method,
                 "time_of_day_size": 288, 
                 "day_of_week_size": 7}
                     )

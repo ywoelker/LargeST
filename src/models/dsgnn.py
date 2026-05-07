@@ -152,12 +152,13 @@ class conv_approximation(nn.Module):
         return x, node_vec1_prime, node_vec2_prime, D
 
 class linearized_conv(nn.Module):
-    def __init__(self, in_dim, hid_dim, dropout, tau=1.0, random_feature_dim=64, non_linearity = True, key_dim = None):
+    def __init__(self, in_dim, hid_dim, dropout, attention_method, tau=1.0, random_feature_dim=64, non_linearity = True, key_dim = None):
         super(linearized_conv, self).__init__()
         
         self.dropout = dropout
         self.tau = tau
         self.random_feature_dim = random_feature_dim
+        self.attention_method = attention_method
         self.non_linearity = non_linearity  
         
         self.input_fc = nn.Conv2d(in_channels=in_dim, out_channels=hid_dim, kernel_size=(1, 1), bias=True)
@@ -177,27 +178,44 @@ class linearized_conv(nn.Module):
             x = self.dropout_layer(x)
         
         x = x.permute(0, 2, 3, 1) # (B, N, 1, dim*4)
-        x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2, filter_mat)
         
-        # x = x.squeeze(2) # (B, N, dim*4)
-        # node_vec1 = node_vec1.squeeze(2) # (B, N, dim)
-        # node_vec2 = node_vec2.squeeze(2) # (B, N, dim)
-        
-        # if filter_mat is None:
-        #     x, attn_weights = self.attention_layer(node_vec1, node_vec2, x, need_weights=True) # (B, N, dim)
-        # else:
+        if self.attention_method == 'MLA':
+            x, node_vec1_prime, node_vec2_prime, D = self.conv_app_layer(x, node_vec1, node_vec2, filter_mat)
+            x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
+            return x, node_vec1_prime, node_vec2_prime, D
             
-        #     filter_mat_attention  = torch.zeros_like(filter_mat, dtype = torch.bool)
-        #     filter_mat_attention[filter_mat < 1e-8] = True
-        #     x, attn_weights =  self.attention_layer(node_vec1, node_vec2, x, need_weights=True, attn_mask=filter_mat_attention.T) # (B, N, dim)
+        elif self.attention_method == 'MHA':
+        
+            x = x.squeeze(2) # (B, N, dim*4)
+            node_vec1 = node_vec1.squeeze(2) # (B, N, dim)
+            node_vec2 = node_vec2.squeeze(2) # (B, N, dim)
+            
+            
+            assert not ( torch.any(torch.isnan(x)) or torch.any(torch.isnan(node_vec1)) or torch.any(torch.isnan(node_vec2))), "Input to attention contains NaN values"
+            
+            if filter_mat is None:
+                x, attn_weights = self.attention_layer(node_vec1, node_vec2, x, need_weights=True) # (B, N, dim)
+            else:
                 
-        # x = x.unsqueeze(2) # (B, N, 1, dim)
+                invalid_queries = torch.sum(filter_mat, dim = 0) == 0
+                filter_mat[:, invalid_queries] = 1.0
+                
+                x, attn_weights =  self.attention_layer(node_vec1, node_vec2, x, need_weights=True, attn_mask=(~filter_mat.to(bool)).T) # (B, N, dim)
+                
+                attn_weights[:, invalid_queries, :] = 0.0
+                x[:, invalid_queries, :] = 0.0
+                                
+            x = x.unsqueeze(2) # (B, N, 1, dim)
+            
+            x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
+            
+            x = self.output_fc(x) # (B, dim, N, 1)
+            
+            assert not torch.any(torch.isnan(x)), "Output of attention contains NaN values"
+            assert not torch.any(torch.isnan(attn_weights)), "Attention weights contain NaN values"
+            
+            return x, None, None, attn_weights
         
-        x = x.permute(0, 3, 1, 2) # (B, dim*4, N, 1)
-        
-        # x = self.output_fc(x) # (B, dim, N, 1)
-        
-        return x, node_vec1_prime, node_vec2_prime, D
 
 """
 End of utilitiy methods that were copied from BigST
@@ -207,7 +225,7 @@ class DeepStateGNN(BaseModel):
 
     def __init__(self, num_nodes, in_dim, out_dim, random_feature_dim,
                  time_emb_dim, seq_num, node_emb_dim, use_spatial, dropout,
-                 n_contexts,hid_dim,
+                 n_contexts,hid_dim, attention_method,
                  time_of_day_size=288, day_of_week_size=7,
                  use_residual=True, use_bn=True, layer_num=3, adding_query_to_dsn = True):
         super(DeepStateGNN, self).__init__(num_nodes, in_dim, out_dim)
@@ -231,14 +249,16 @@ class DeepStateGNN(BaseModel):
 
         self.use_spatial = use_spatial
         self.adding_query_to_dsn = adding_query_to_dsn
+        
+        self.attention_method = attention_method
 
-        self.context_emb_layer = nn.Parameter(torch.empty(self.num_contexts, node_emb_dim))
+        self.context_emb_layer = nn.Parameter(torch.zeros(self.num_contexts, node_emb_dim))
         nn.init.xavier_uniform_(self.context_emb_layer)
         
         # time embedding layer
-        self.time_emb_layer = nn.Parameter(torch.empty(self.time_num, time_emb_dim))
+        self.time_emb_layer = nn.Parameter(torch.zeros(self.time_num, time_emb_dim))
         nn.init.xavier_uniform_(self.time_emb_layer)
-        self.week_emb_layer = nn.Parameter(torch.empty(self.week_num, time_emb_dim))
+        self.week_emb_layer = nn.Parameter(torch.zeros(self.week_num, time_emb_dim))
         nn.init.xavier_uniform_(self.week_emb_layer)
 
         num_values = 3 # number of values in the input sequence (e.g., temperature, humidity, etc.)
@@ -268,20 +288,20 @@ class DeepStateGNN(BaseModel):
         self.bn = nn.ModuleList()
         
         for _ in range(self.layer_num):
-            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=False, key_dim = node_emb_dim))
+            self.linear_conv.append(linearized_conv(hid_dim + node_emb_dim, hid_dim + node_emb_dim, self.dropout,self.attention_method, self.tau, self.random_feature_dim, non_linearity=False, key_dim = node_emb_dim))
             self.bn.append(nn.LayerNorm(hid_dim + node_emb_dim))
             
         
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(hid_dim  + 2 * time_emb_dim, hid_dim, self.dropout, self.tau, self.random_feature_dim, non_linearity=True, key_dim = node_emb_dim)
+        self.linear_obs_2_dsn_conv = linearized_conv(hid_dim  + 2 * time_emb_dim, hid_dim, self.dropout, self.attention_method, self.tau, self.random_feature_dim, non_linearity=True, key_dim = node_emb_dim)
 
         self.hid_dim_times_after_conv = 1
 
         # self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
         # self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
 
-        self.linear_dsn_2_obs_conv = linearized_conv( (node_emb_dim + hid_dim) * 2, hid_dim * self.hid_dim_times_after_conv, self.dropout, self.tau, self.random_feature_dim, key_dim = node_emb_dim)
+        self.linear_dsn_2_obs_conv = linearized_conv( (node_emb_dim + hid_dim) * 2, hid_dim * self.hid_dim_times_after_conv, self.dropout, self.attention_method, self.tau, self.random_feature_dim, key_dim = node_emb_dim)
         
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
         self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
