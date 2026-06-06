@@ -57,7 +57,7 @@
             "console": "integratedTerminal",
             "args": [
                 "--device",
-                "cpu",
+                "mps",
                 "--dataset",
                 "SD",
                 "--years",
@@ -97,14 +97,22 @@
                 "2023",
                 "--model_name",
                 "opcr_tr_drop_025_00",
+                "--mask_name",
+                "point_missing_095",
+                "--mask_iter",
+                "0",                
                 "--max_epochs",
                 "3",
                 "--use_wandb",
                 "False",
                 "--use_metadata",
                 "True",
+                "--train_data_percentage",
+                "2",
                 "--input_dim",
                 "38",
+                "--bs",
+                "4"
             ]
         } , 
         {

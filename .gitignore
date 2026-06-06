@@ -11,6 +11,7 @@ launch.json
 results/
 ./launch_python_jobs.py
 scripts_logs/
+.DS_Store
 
 
 # Byte-compiled / optimized / DLL files
