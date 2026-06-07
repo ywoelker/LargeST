@@ -293,7 +293,7 @@ if __name__ == '__main__':
                     additional_cmd_str = additional_cmd_str + ' --n_hid 64 --gcn_layers 2 --dropout 0.1 --n_context_emb 32 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001 '
                     # additional_cmd_str = additional_cmd_str + ' --n_hid 32 --gcn_layers 2 --dropout 0.1 --n_context_emb 16 --additional_loss_weight 0 --dsn_div_weight 0.01 --dsn_div_margin 0.003 '
                     
-                create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=True, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags sparsestate --max_epochs 50 --train_data_percentage 1,.0')
+                create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=True, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags sparsestate --max_epochs 50 --train_data_percentage 1.0')
                                  
                                  
                 #'--wandb_tags inference_time_benchmark --max_epochs 1 --train_data_percentage 0.02')
