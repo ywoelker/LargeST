@@ -46,10 +46,11 @@ class BaseEngine():
 
 
     def _to_device(self, tensors):
+        non_blocking = self._device.type == 'cuda'
         if isinstance(tensors, list):
-            return [tensor.to(self._device, non_blocking = True) for tensor in tensors]
+            return [tensor.to(self._device, non_blocking=non_blocking) for tensor in tensors]
         else:
-            return tensors.to(self._device, non_blocking = True)
+            return tensors.to(self._device, non_blocking=non_blocking)
 
 
     def _to_numpy(self, tensors):
@@ -149,7 +150,6 @@ class BaseEngine():
 
             # X (b, t, n, f), label (b, t, n, 1)
             X, label = self._to_device(self._to_tensor([X, label]))
-            print('1', torch.isnan(label).sum(), torch.isnan(X).sum())
             
 
             self.current_x_mask = self._to_device(self._to_tensor(x_mask))
@@ -157,12 +157,9 @@ class BaseEngine():
 
 
             labels_as_input_to_model = torch.where(self.current_label_mask.to(bool), label, self.label_mask_value)
-            print('2', torch.isnan(label).sum(), torch.isnan(X).sum())
 
             pred, labels_as_input_to_model, loss_container = self.forward(X, labels_as_input_to_model, isTrain=True)
-            print('3', torch.isnan(label).sum(), torch.isnan(X).sum())
             pred, label = self._inverse_transform([pred, label])
-            print('4', torch.isnan(label).sum(), torch.isnan(X).sum())
 
             mask_value = self.mask_value(label)
 
@@ -177,7 +174,7 @@ class BaseEngine():
             mape = masked_mape(pred, label, mask_value, label_mask= self.current_label_mask).item()
             rmse = masked_rmse(pred, label, mask_value, label_mask= self.current_label_mask).item()
 
-            loss_total = loss #+ extra_loss
+            loss_total = loss + extra_loss
 
             loss_total.backward()
             if self._clip_grad_value != 0:

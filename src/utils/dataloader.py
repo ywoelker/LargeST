@@ -213,7 +213,7 @@ def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
 
         if cat == 'train' and args.train_data_percentage < 1.0:
             num_train_samples = int(len(idx) * args.train_data_percentage)
-            idx = idx[:num_train_samples]
+            idx = idx[-num_train_samples:]
             logger.info(f'Using {args.train_data_percentage*100:.1f}% of the training data')
 
         if use_masks and (cat == 'train' or cat == 'val'):

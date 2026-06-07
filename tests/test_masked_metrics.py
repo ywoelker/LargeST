@@ -1,7 +1,7 @@
 """
 Tests for masked metrics (MAE, MSE, RMSE, MAPE) to verify that:
 1. NaN labels are excluded from the denominator (not just zeroed in the numerator)
-2. null_val-masked positions are excluded from the denominator
+2. null_val-masked positions are excluded from the denominator (with atol=0.5)
 3. label_mask further restricts which positions contribute
 4. The result matches a naive hand-computed mean over valid positions only
 """
@@ -23,12 +23,23 @@ from src.utils.metrics import (
 )
 
 ATOL = 1e-5
+MASK_ATOL = 1e-5  # must match _label_mask default
+
+
+def valid_mask(labels, null_val):
+    """Reproduce _label_mask logic: exclude NaN and labels within atol of null_val."""
+    if torch.isnan(null_val):
+        mask = ~torch.isnan(labels)
+    else:
+        mask = torch.abs(labels - null_val) > MASK_ATOL
+    if torch.isnan(labels).any():
+        mask = mask & ~torch.isnan(labels)
+    return mask
 
 
 # ── helpers ──────────────────────────────────────────────────────────────
 
 def naive_mae(preds, labels, valid):
-    """Ground-truth MAE computed only over valid positions."""
     return torch.abs(preds[valid] - labels[valid]).mean()
 
 
@@ -46,7 +57,7 @@ def test_no_nan_no_nullval():
     """All positions valid — metrics should equal plain torch mean."""
     preds = torch.tensor([1.0, 2.0, 3.0, 4.0])
     labels = torch.tensor([1.5, 2.5, 3.5, 4.5])
-    null_val = torch.tensor(float("nan"))  # NaN null_val with no NaN labels → all valid
+    null_val = torch.tensor(float("nan"))
 
     expected_mae = torch.abs(preds - labels).mean()
     assert torch.isclose(masked_mae(preds, labels, null_val), expected_mae, atol=ATOL), \
@@ -55,47 +66,59 @@ def test_no_nan_no_nullval():
 
 
 def test_null_val_excluded():
-    """Positions matching null_val should be excluded from mean."""
+    """Positions within atol of null_val should be excluded from mean."""
     preds = torch.tensor([10.0, 20.0, 30.0, 0.0])
-    labels = torch.tensor([12.0, 22.0, 32.0, 0.0])  # last matches null_val=0
+    labels = torch.tensor([12.0, 22.0, 32.0, 0.0])
     null_val = torch.tensor(0.0)
 
-    valid = labels != 0
-    expected = naive_mae(preds, labels, valid)
+    v = valid_mask(labels, null_val)
+    expected = naive_mae(preds, labels, v)
     result = masked_mae(preds, labels, null_val)
     assert torch.isclose(result, expected, atol=ATOL), \
         f"MAE should average only over non-null positions: got {result:.6f}, expected {expected:.6f}"
     print("  PASS test_null_val_excluded")
 
 
+def test_null_val_tolerance():
+    """Labels within atol=1e-5 of null_val should also be excluded."""
+    preds = torch.tensor([10.0, 20.0, 30.0, 40.0])
+    labels = torch.tensor([12.0, 22.0, 0.000003, 42.0])  # 0.000003 is within 1e-5 of null_val=0
+    null_val = torch.tensor(0.0)
+
+    v = valid_mask(labels, null_val)
+    assert v.sum() == 3, "Label 0.000003 should be excluded (within atol=1e-5 of 0)"
+    expected = naive_mae(preds, labels, v)
+    result = masked_mae(preds, labels, null_val)
+    assert torch.isclose(result, expected, atol=ATOL), \
+        f"Tolerance test: got {result:.6f}, expected {expected:.6f}"
+    print("  PASS test_null_val_tolerance")
+
+
 def test_nan_labels_excluded_from_denominator():
     """
     Core test: 75% of labels are NaN (simulating point_missing_075).
-    The reported MAE must equal the MAE computed only over the 25% valid
-    positions — NaN positions must NOT inflate the denominator.
+    The reported MAE must equal the MAE computed only over valid positions.
     """
     torch.manual_seed(42)
     N = 1000
     preds = torch.randn(N) * 20 + 50
     labels = torch.randn(N) * 20 + 50
 
-    # Mask 75% as NaN
     mask = torch.rand(N) > 0.75
     labels_nan = labels.clone()
     labels_nan[~mask] = float("nan")
 
-    # null_val = nanmin (mimics engine.mask_value)
     null_val = labels_nan[~labels_nan.isnan()].min()
+    v = valid_mask(labels_nan, null_val)
 
-    valid = mask & (labels_nan != null_val)
-    expected = naive_mae(preds, labels_nan, valid)
+    expected = naive_mae(preds, labels_nan, v)
     result = masked_mae(preds, labels_nan, null_val)
 
     assert torch.isclose(result, expected, atol=ATOL), (
         f"With 75% NaN labels, MAE denominator must count only valid positions.\n"
         f"  Got:      {result:.4f}\n"
         f"  Expected: {expected:.4f}\n"
-        f"  Ratio:    {result / expected:.4f}x (would be ~0.25 if NaN dilutes denominator)"
+        f"  Ratio:    {result / expected:.4f}x"
     )
     print("  PASS test_nan_labels_excluded_from_denominator")
 
@@ -112,9 +135,9 @@ def test_nan_labels_excluded_mse():
     labels_nan[~mask] = float("nan")
 
     null_val = labels_nan[~labels_nan.isnan()].min()
-    valid = mask & (labels_nan != null_val)
+    v = valid_mask(labels_nan, null_val)
 
-    expected = naive_mse(preds, labels_nan, valid)
+    expected = naive_mse(preds, labels_nan, v)
     result = masked_mse(preds, labels_nan, null_val)
 
     assert torch.isclose(result, expected, atol=1e-3), \
@@ -123,10 +146,10 @@ def test_nan_labels_excluded_mse():
 
 
 def test_nan_labels_excluded_mape():
-    """Same for MAPE, using strictly positive labels."""
+    """Same for MAPE, using strictly positive labels far from null_val."""
     torch.manual_seed(42)
     N = 400
-    labels = torch.rand(N) * 100 + 10  # all positive
+    labels = torch.rand(N) * 100 + 10  # all positive, well above atol
     preds = labels + torch.randn(N) * 5
 
     mask = torch.rand(N) > 0.6
@@ -134,9 +157,9 @@ def test_nan_labels_excluded_mape():
     labels_nan[~mask] = float("nan")
 
     null_val = labels_nan[~labels_nan.isnan()].min()
-    valid = mask & (labels_nan != null_val)
+    v = valid_mask(labels_nan, null_val)
 
-    expected = naive_mape(preds, labels_nan, valid)
+    expected = naive_mape(preds, labels_nan, v)
     result = masked_mape(preds, labels_nan, null_val)
 
     assert torch.isclose(result, expected, atol=1e-3), \
@@ -151,7 +174,6 @@ def test_label_mask_further_restricts():
     null_val = torch.tensor(float("nan"))
     label_mask = torch.tensor([1.0, 1.0, 0.0, 0.0])
 
-    # Only first two positions should contribute
     expected = torch.abs(preds[:2] - labels[:2]).mean()
     result = masked_mae(preds, labels, null_val, label_mask=label_mask)
 
@@ -167,10 +189,9 @@ def test_nan_plus_label_mask():
     null_val = torch.tensor(0.0)
     label_mask = torch.tensor([1.0, 1.0, 1.0, 0.0, 0.0])
 
-    # Valid: not NaN AND label_mask=1 AND labels != null_val
-    # Position 0: valid (12 != 0, not NaN, mask=1)
+    # Position 0: valid (12, not NaN, mask=1, |12-0|>0.5)
     # Position 1: excluded (NaN)
-    # Position 2: valid (32 != 0, not NaN, mask=1)
+    # Position 2: valid (32, not NaN, mask=1, |32-0|>0.5)
     # Position 3: excluded (NaN + mask=0)
     # Position 4: excluded (mask=0)
     expected = torch.abs(preds[torch.tensor([0, 2])] - labels[torch.tensor([0, 2])]).mean()
@@ -214,22 +235,20 @@ def test_realistic_point_missing_scenario():
     positions, not a diluted value.
     """
     torch.manual_seed(7)
-    B, H, N = 8, 12, 716  # batch, horizon, sensors
+    B, H, N = 8, 12, 716
 
-    # Simulate inverse-transformed traffic predictions and labels
     labels = torch.randn(B, H, N) * 184.3 + 247.2
-    preds = labels + torch.randn(B, H, N) * 5  # ~5 MAE error
+    preds = labels + torch.randn(B, H, N) * 5
 
-    # 75% point-missing → NaN
     keep = torch.rand(B, H, N) > 0.75
     labels_masked = labels.clone()
     labels_masked[~keep] = float("nan")
 
     null_val = labels_masked[~labels_masked.isnan()].min()
-    valid = keep & (labels_masked != null_val)
+    v = valid_mask(labels_masked, null_val)
 
     result = masked_mae(preds, labels_masked, null_val)
-    expected = torch.abs(preds[valid] - labels_masked[valid]).mean()
+    expected = torch.abs(preds[v] - labels_masked[v]).mean()
 
     ratio = result / expected
     assert torch.isclose(result, expected, rtol=0.01), (
@@ -247,6 +266,7 @@ def main():
 
     test_no_nan_no_nullval()
     test_null_val_excluded()
+    test_null_val_tolerance()
     test_nan_labels_excluded_from_denominator()
     test_nan_labels_excluded_mse()
     test_nan_labels_excluded_mape()
