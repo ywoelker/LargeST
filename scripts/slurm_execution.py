@@ -2,6 +2,8 @@ from simple_slurm import Slurm
 
 DATASET = 'SD'
 
+HOST = 'TUHH'
+
 META_DATA_FEATURES = {
         'SD': 38,
         'GBA': 62,
@@ -45,32 +47,50 @@ def create_slurm_job(model_name:str, mask_name:str | None, mask_iter:int, gpu_h1
     if len(job_name_suffix) > 0 and job_name_suffix is not None:
         job_name = job_name + '_' + job_name_suffix
 
-    slurm = Slurm(
-        "--job_name", job_name,
-        "--nodes", 1,
-        "--ntasks_per_node", 1,
-        "--cpus_per_task", 8,
-        "--gpus_per_node", 1, 
-        "--mem", "64000",
-        "--time", "23:00:00",
-        "--partition", "gpu",
-        "--output", f'scripts_logs/{job_name}_%j.out',
-    )
 
-    if gpu_h100:
-        slurm.add_arguments("--constraint", "H100")
-    elif gpu_selection != 'none':
-        slurm.add_arguments("--constraint", gpu_selection)
+    if HOST == 'TUHH':
+        slurm = Slurm(
+            "--job_name", job_name,
+            "--ntasks ", 1,
+            "--cpus_per_task", 8,
+            "--gres", 'gpu:1', 
+            "--mem", "64000",
+            "--time", "23:00:00",
+            "--output", f'scripts_logs/{job_name}_%j.out',
+        )
 
-    slurm.add_cmd('export OMP_NUM_THREADS=8')
-    slurm.add_cmd('export http_proxy=http://10.0.7.235:3128')
-    slurm.add_cmd('export https_proxy=http://10.0.7.235:3128')
-    slurm.add_cmd('export ftp_proxy=http://10.0.7.235:3128')
-    slurm.add_cmd('module load gpu-env')
-    slurm.add_cmd('module load cuda cudnn miniconda3')
-    slurm.add_cmd('source ~/.bashrc')
-    slurm.add_cmd('conda activate multi_context2.0')
-    slurm.add_cmd('echo $CUDA_VISIBLE_DEVICES')
+        slurm.add_cmd('export OMP_NUM_THREADS=8')
+        slurm.add_cmd('module load cuda')
+        slurm.add_cmd('source .venv/bin/activate')
+
+    else:
+
+        slurm = Slurm(
+            "--job_name", job_name,
+            "--nodes", 1,
+            "--ntasks_per_node", 1,
+            "--cpus_per_task", 8,
+            "--gpus_per_node", 1, 
+            "--mem", "64000",
+            "--time", "23:00:00",
+            "--partition", "gpu",
+            "--output", f'scripts_logs/{job_name}_%j.out',
+        )
+
+        if gpu_h100:
+            slurm.add_arguments("--constraint", "H100")
+        elif gpu_selection != 'none':
+            slurm.add_arguments("--constraint", gpu_selection)
+
+        slurm.add_cmd('export OMP_NUM_THREADS=8')
+        slurm.add_cmd('export http_proxy=http://10.0.7.235:3128')
+        slurm.add_cmd('export https_proxy=http://10.0.7.235:3128')
+        slurm.add_cmd('export ftp_proxy=http://10.0.7.235:3128')
+        slurm.add_cmd('module load gpu-env')
+        slurm.add_cmd('module load cuda cudnn miniconda3')
+        slurm.add_cmd('source ~/.bashrc')
+        slurm.add_cmd('conda activate multi_context2.0')
+        slurm.add_cmd('echo $CUDA_VISIBLE_DEVICES')
 
 
     slurm.add_cmd('mkdir -p /tmp')
@@ -96,8 +116,8 @@ def create_slurm_job(model_name:str, mask_name:str | None, mask_iter:int, gpu_h1
     #--input_dim 186 -CA
 
     
-
-    slurm.add_cmd('jobinfo')
+    if HOST != 'TUHH':
+        slurm.add_cmd('jobinfo')
 
     if fire:
         slurm.sbatch()
@@ -220,61 +240,61 @@ if __name__ == '__main__':
     # ablation_dropout([0, 0.01, 0.1, 0.3, 0.5])
     # ablation_hidden_dim()
     # ablation_static_prefilter_mode()
-    ablation_attention_method()
+    # ablation_attention_method()
 
-    # for mask_iter in [0]:
-    #     for mask_name in [None,'point_missing_050', 'point_missing_075', 'point_missing_095']: #[None, 'tr_drop_025', 'tr_drop_050', 'tr_drop_075', 'point_missing_050', 'point_missing_075', 'point_missing_095']: 
-    #         # for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN']:
-    #         for model_name in ['PDFormer']:#['D2STGNN', 'GMAN', 'PDFormer', 'SPIN', 'OPCR']: #['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN' ,'PDFormer', 'SPIN']:
-    #             gpu_h100 = model_name in ['D2STGNN', 'GMAN', 'DCRNN', 'SPIN']
+    for mask_iter in [0,1]:
+        for mask_name in [None,'point_missing_050', 'point_missing_075', 'point_missing_095']: #[None, 'tr_drop_025', 'tr_drop_050', 'tr_drop_075', 'point_missing_050', 'point_missing_075', 'point_missing_095']: 
+            # for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN']:
+            for model_name in ['DSGNN', 'SparseStateGNN']:#['D2STGNN', 'GMAN', 'PDFormer', 'SPIN', 'OPCR']: #['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN' ,'PDFormer', 'SPIN']:
+                gpu_h100 = model_name in ['D2STGNN', 'GMAN', 'DCRNN', 'SPIN']
 
-    #             if DATASET == 'SD':
-    #                 if model_name.lower() == 'dstagnn':
-    #                     additional_cmd_str = '--input_dim 1'
-    #                 elif model_name.lower() == 'gman' or model_name.lower() == 'spin' or model_name.lower() == 'pdformer':
-    #                     additional_cmd_str = '--bs 16'
-    #                 else:
-    #                     additional_cmd_str = ''
+                if DATASET == 'SD':
+                    if model_name.lower() == 'dstagnn':
+                        additional_cmd_str = '--input_dim 1'
+                    elif model_name.lower() == 'gman' or model_name.lower() == 'spin' or model_name.lower() == 'pdformer':
+                        additional_cmd_str = '--bs 16'
+                    else:
+                        additional_cmd_str = ''
 
-    #             # if mask_iter == 2 and mask_name != 'point_missing_075' and mask_name != 'point_missing_095':
-    #             #     continue
+                # if mask_iter == 2 and mask_name != 'point_missing_075' and mask_name != 'point_missing_095':
+                #     continue
 
-    #             # if mask_iter == 3 and mask_name == 'tr_drop_050':
-    #             #     continue
+                # if mask_iter == 3 and mask_name == 'tr_drop_050':
+                #     continue
                 
 
-    #             elif DATASET == 'CA':
+                elif DATASET == 'CA':
 
-    #                 additional_cmd_str = ''
-    #                 if model_name.lower() == 'd2stgnn':
-    #                     additional_cmd_str += '--bs 32'
+                    additional_cmd_str = ''
+                    if model_name.lower() == 'd2stgnn':
+                        additional_cmd_str += '--bs 32'
 
-    #             elif DATASET == 'GBA':
+                elif DATASET == 'GBA':
                      
-    #                 additional_cmd_str = ''
-    #                 if model_name.upper() in GBA_H100:
-    #                     gpu_h100 = True
+                    additional_cmd_str = ''
+                    if model_name.upper() in GBA_H100:
+                        gpu_h100 = True
                         
-    #                     if GBA_H100[model_name.upper()] < 64:
-    #                         additional_cmd_str  += f' --bs {GBA_H100[model_name.upper()]}'
+                        if GBA_H100[model_name.upper()] < 64:
+                            additional_cmd_str  += f' --bs {GBA_H100[model_name.upper()]}'
 
-    #                 elif model_name.upper() in GBA_V100:
-    #                     gpu_h100 = False
-    #                     if GBA_V100[model_name.upper()] < 64:
-    #                         additional_cmd_str  += f' --bs {GBA_V100[model_name.upper()]}'
-    #             else:
-    #                 additional_cmd_str = ''
+                    elif model_name.upper() in GBA_V100:
+                        gpu_h100 = False
+                        if GBA_V100[model_name.upper()] < 64:
+                            additional_cmd_str  += f' --bs {GBA_V100[model_name.upper()]}'
+                else:
+                    additional_cmd_str = ''
                     
-    #             if model_name.lower() == 'pdformer':
-    #                     additional_cmd_str += ' --enc_depth 4 --add_time_in_day True --add_day_in_week True'
+                if model_name.lower() == 'pdformer':
+                        additional_cmd_str += ' --enc_depth 4 --add_time_in_day True --add_day_in_week True'
                     
                     
-    #             if model_name.lower() == 'dsgnn':
-    #                 additional_cmd_str = additional_cmd_str + ' --n_hid 64 --gcn_layers 2 --dropout 0.1 --n_context_emb 32 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001 '
-    #                 # additional_cmd_str = additional_cmd_str + ' --n_hid 32 --gcn_layers 2 --dropout 0.1 --n_context_emb 16 --additional_loss_weight 0 --dsn_div_weight 0.01 --dsn_div_margin 0.003 '
+                if model_name.lower() == 'dsgnn' or model_name.lower() == 'sparsestategnn':
+                    additional_cmd_str = additional_cmd_str + ' --n_hid 64 --gcn_layers 2 --dropout 0.1 --n_context_emb 32 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001 '
+                    # additional_cmd_str = additional_cmd_str + ' --n_hid 32 --gcn_layers 2 --dropout 0.1 --n_context_emb 16 --additional_loss_weight 0 --dsn_div_weight 0.01 --dsn_div_margin 0.003 '
                     
-    #             create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=True, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags inference_time_benchmark --max_epochs 1 --train_data_percentage 0.02')
-                                 
+                slurm = create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=True, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags sparsestate --max_epochs 50 --train_data_percentage 1.0', fire = False)
+                print(slurm)
                                  
                 #'--wandb_tags inference_time_benchmark --max_epochs 1 --train_data_percentage 0.02')
                 # create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100= True, additional_cmd_str=additional_cmd_str + f' --wandb_tags benchmark_GBA --training_timeout_min 600')

@@ -1,31 +1,28 @@
 import torch
 
-def _label_mask(label, null_val):
+def _label_mask(label, null_val, atol=1e-5):
+    # print(null_val, torch.isnan(label).sum())
     if torch.isnan(null_val):
         mask = ~torch.isnan(label)
     else:
-        mask = (label != null_val)
+        mask = torch.abs(label - null_val) > atol
 
-    # if torch.isnan(label).any():
-    #     nan_mask = ~torch.isnan(label)
-    #     mask = mask & nan_mask
+    # print(f"Mask has sum of {mask.sum().item()} and {(mask > 0).sum().item()} valid entries out of {mask.numel()} total entries.")
+    if torch.isnan(label).any():
+        nan_mask = ~torch.isnan(label)
+        mask = mask & nan_mask
 
     mask = mask.float()
-
-    mask /= torch.mean((mask))
-    mask = torch.where(torch.isnan(mask), torch.zeros_like(mask), mask)
     return mask
 
 def masked_mse(preds, labels, null_val, label_mask = None):
     mask = _label_mask(labels, null_val)
-
     if label_mask is not None:
         mask = mask * label_mask
-
     loss = (preds - labels)**2
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
-    return torch.mean(loss)
+    return torch.sum(loss) / mask.sum().clamp(min=1)
 
 
 def masked_rmse(preds, labels, null_val, label_mask = None):
@@ -39,17 +36,18 @@ def masked_mae(preds, labels, null_val, label_mask = None):
     loss = torch.abs(preds - labels)
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
-    return torch.mean(loss)
+    return torch.sum(loss) / mask.sum().clamp(min=1)
 
 
 def masked_mape(preds, labels, null_val, label_mask = None):
     mask = _label_mask(labels, null_val)
+    mask = mask * (torch.abs(labels) > 1.0).float()
     if label_mask is not None:
         mask = mask * label_mask
-    loss = torch.abs(preds - labels) / labels
+    loss = torch.abs(preds - labels) / torch.abs(labels).clamp(min=1e-8)
     loss = loss * mask
     loss = torch.where(torch.isnan(loss), torch.zeros_like(loss), loss)
-    return torch.mean(loss)
+    return torch.sum(loss) / mask.sum().clamp(min=1)
 
 
 def compute_all_metrics(preds, labels, null_val):

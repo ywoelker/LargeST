@@ -312,9 +312,9 @@ class DeepStateGNN(BaseModel):
         # x: (B, N, T, D)
         B, N, T, D = x.size()
         
-        time_emb = self.time_emb_layer[(x[:, :, -1, 1]*self.time_num).int()]
+        time_emb = self.time_emb_layer[x[:, :, -1, 1].int() * self.time_num]
         # TODO: why isn't week values multiplied by week_num first?
-        week_emb = self.week_emb_layer[x[:, :, -1, 2].int()]
+        week_emb = self.week_emb_layer[x[:, :, -1, 2].int() ]
 
 
         x_context = x[..., -1 , 3:] # shape (B, N, D-3)

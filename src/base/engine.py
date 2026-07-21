@@ -38,7 +38,7 @@ class BaseEngine():
         self._wandb_logger = wandb_logger
         self._training_timeout_min = training_timeout_min
 
-        self.label_mask_value = self._scaler.transform(torch.tensor([0])).to(self._device)[0].to(torch.float)
+        self.label_mask_value = self._scaler.transform(torch.tensor([0.0])).to(dtype = torch.float32, device = self._device)[0]
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
 
         torch.manual_seed(seed)
@@ -46,10 +46,11 @@ class BaseEngine():
 
 
     def _to_device(self, tensors):
+        non_blocking = self._device.type == 'cuda'
         if isinstance(tensors, list):
-            return [tensor.to(self._device, non_blocking = True) for tensor in tensors]
+            return [tensor.to(self._device, non_blocking=non_blocking) for tensor in tensors]
         else:
-            return tensors.to(self._device, non_blocking = True)
+            return tensors.to(self._device, non_blocking=non_blocking)
 
 
     def _to_numpy(self, tensors):
@@ -120,22 +121,16 @@ class BaseEngine():
 
     
     def mask_value(self, label):
-        # handle the precision issue when performing inverse transform to label
-        mask_value = torch.tensor(0)
+        if torch.isnan(label).any():
+            # NaN labels come from output masking. The smallest valid label
+            # is inverse_transform(label_mask_value) which is exactly 0, but
+            # float32 round-trip can land on a tiny negative (device-dependent).
+            # Use 0 directly to avoid CPU/MPS divergence.
+            return torch.tensor(0.0)
+
+        mask_value = torch.tensor(0.0)
         if label.min() < 1:
             mask_value = label.min()
-        
-        if torch.isnan(label.min()).any():
-            def nanmin(tensor):
-                max_value = torch.finfo(tensor.dtype).max
-                output = tensor.nan_to_num(max_value).min()
-                return output
-            
-            mask_value_nanmin = nanmin(label)
-
-            if mask_value_nanmin < 1:
-                mask_value = mask_value_nanmin
-
         return mask_value
 
     def train_batch(self):
@@ -155,18 +150,17 @@ class BaseEngine():
 
             # X (b, t, n, f), label (b, t, n, 1)
             X, label = self._to_device(self._to_tensor([X, label]))
-            #TODO: The problem is that after the next line this has 9k entries `((self._inverse_transform([label])[0] > 0.0) & (self._inverse_transform([label])[0] < 0.1) ).sum()`
-            # Before this line this is 0
+            
 
             self.current_x_mask = self._to_device(self._to_tensor(x_mask))
             self.current_label_mask = self._to_device(self._to_tensor(label_mask))
-            
+
 
             labels_as_input_to_model = torch.where(self.current_label_mask.to(bool), label, self.label_mask_value)
 
-            pred, labels_as_input_to_model, loss_container = self.forward(X, labels_as_input_to_model, isTrain=True)            
+            pred, labels_as_input_to_model, loss_container = self.forward(X, labels_as_input_to_model, isTrain=True)
             pred, label = self._inverse_transform([pred, label])
-    
+
             mask_value = self.mask_value(label)
 
             if self._iter_cnt == 0:

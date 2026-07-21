@@ -1,4 +1,4 @@
-x# ignore unnecessary files for the project
+# ignore unnecessary files for the project
 wandb/
 data/
 experiments/**/*.pt
@@ -12,6 +12,7 @@ results/
 ./launch_python_jobs.py
 scripts_logs/
 img/*.png
+.DS_Store
 
 
 # Byte-compiled / optimized / DLL files
