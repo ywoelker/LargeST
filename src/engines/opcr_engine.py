@@ -36,7 +36,7 @@ class OPCR_Engine(BaseEngine):
             node_embed = node_embeddings,
             x = X_traffic,
             ex = X_time, # not yet transformed in cos and sin
-            mask = self.current_x_mask.permute(0, 2, 1, 3).bool(),  # (B, N, T, F) invert because here True means missing
+            mask = ~(self.current_x_mask.permute(0, 2, 1, 3).bool()),  # (B, N, T, F) invert because here True means missing
         )
 
         # requires (B, N, T, F)
