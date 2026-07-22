@@ -8,7 +8,8 @@ META_DATA_FEATURES = {
         'SD': 38,
         'GBA': 62,
         'GLA': 74,
-        'CA': 189           
+        'CA': 189, 
+        'MAD': 1153 
     }
 
 

@@ -278,7 +278,8 @@ class BaseEngine():
         labels = []
         with torch.no_grad():
             self.current_available_sensors = self._dataloader[mode + '_loader'].available_sensors
-            for batch_i, (X, label, x_mask, label_mask) in enumerate(self._dataloader[mode + '_loader'].get_iterator()):
+            for X, label, x_mask, label_mask in tqdm(self._dataloader[mode + '_loader'].get_iterator(),total = self._dataloader[mode + '_loader'].num_batch, desc=f'{"Validation" if mode == "val" else "Test"}'):
+                
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
                 self.current_x_mask = self._to_device(self._to_tensor(x_mask))

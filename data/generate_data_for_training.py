@@ -2,6 +2,9 @@ import os
 import argparse
 import numpy as np
 import pandas as pd
+import networkx as nx
+from typing import Optional
+import pickle as pckl 
 
 class StandardScaler():
     def __init__(self, mean, std):
@@ -100,6 +103,38 @@ def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, a
     
     return data, metadata_config
 
+def to_adj_matrix(graph: nx.Graph, sensors: Optional[list], self_loops: bool = True) -> np.ndarray:
+    """
+    Converts the given GO-MO graph into a numpy adjacency matrix for the specified sensors.
+    Self-loops are added to nodes corresponding to the sensors, and the adjacency matrix of the resulting graph is returned.
+
+    The adjacency matrix is constructed based on the nodes specified in the sensors parameter.
+    Only the subgraph consisting of these nodes is considered, inclusive of any weights on the edges.
+    If sensors is None, the entire graph is considered.
+    Self-loops will be added to these nodes.
+
+    :param graph: The input GO-MO graph.
+    :type graph: nx.Graph
+    :param sensors: A list of nodes representing the subset of the graph for which the adjacency
+        matrix is computed. If None, the entire graph is returned.
+    :type sensors: list
+    :param self_loops: If True, add self-loops (identity) to the adjacency matrix diagonal for the
+        selected nodes.
+    :type self_loops: bool
+    :return: A numpy ndarray representing the weighted adjacency matrix of the largest
+        connected subgraph corresponding to the nodes (sensors) provided.
+    :rtype: np.ndarray
+    """
+    sensors = sensors or list(graph.nodes)
+
+    # get adj matrix
+    adj_matrix = nx.to_numpy_array(graph, nodelist=sensors, weight='weight')
+
+    # add self loops if requested
+    if self_loops:
+        adj_matrix += np.eye(len(sensors))
+
+    return adj_matrix
 
 
 def generate_data_and_idx(df, x_offsets, y_offsets, add_time_of_day, add_day_of_week):
@@ -130,6 +165,29 @@ def load_metadata(args):
     metadata = metadata.set_index('ID')
     return metadata
 
+def new_and_dying_sensors(df: pd.DataFrame) -> tuple[list, list, list]:
+    df = df.sort_index()
+
+    isna   = df.isna()
+    valid  = ~isna
+
+    has_before = valid.cumsum(axis=0).gt(0)
+    has_after  = valid[::-1].cumsum(axis=0)[::-1].gt(0)
+
+    leading_nan = isna & ~has_before
+    trailing_nan = isna & ~has_after
+    internal_nan = isna & has_before & has_after
+
+    newborn_cols = leading_nan.any(axis=0)
+    dying_cols   = trailing_nan.any(axis=0)
+    invalid_cols = internal_nan.any(axis=0) | isna.all(axis=0)
+
+    newborn_sensors = df.columns[newborn_cols].tolist()
+    dying_sensors   = df.columns[dying_cols].tolist()
+    invalid_sensors = df.columns[invalid_cols].tolist()
+
+    return newborn_sensors, dying_sensors, invalid_sensors
+
 
 def generate_train_val_test(args):
     years = args.years.split('_')
@@ -139,8 +197,28 @@ def generate_train_val_test(args):
         df = pd.concat([df, df_tmp])#df.append(df_tmp)
     print('original data shape:', df.shape)
 
+    if args.dataset == 'mad':
+        newborn, dying, temporary_off = new_and_dying_sensors(df)
+
+        if len(temporary_off) > 0:
+            print(f"Temporary off sensors found: {temporary_off}")
+
+        to_drop = set(newborn) | set(dying) | set(temporary_off)
+        df = df.drop(columns=to_drop)
+        
+        with open('mad/routes-graph.pkl', 'rb') as f:
+            routes_network = pckl.load(f)
+            
+        mad_adjacency_matrix = to_adj_matrix(routes_network, sensors=df.columns.tolist(), self_loops=True)    
+        
+        np.save(args.dataset + '/' + args.dataset + '_rn_adj.npy', mad_adjacency_matrix)
+        
+        meta_df = pd.read_csv(args.dataset + '/' + args.dataset + '_meta.csv').set_index('ID')
+        meta_df = meta_df[meta_df.index.isin(df.columns)]
+        meta_df.to_csv(args.dataset + '/' + args.dataset + '_meta.csv', index=True)
+        
     metadata_raw = load_metadata(args)
-    metadata, metadata_config = generate_metadata(metadata_raw, True, True, True, True, True)
+    metadata, metadata_config = generate_metadata(metadata_raw, True, True, True, True, False)
 
     seq_length_x, seq_length_y = args.seq_length_x, args.seq_length_y
     x_offsets = np.arange(-(seq_length_x - 1), 1, 1)
@@ -176,7 +254,7 @@ def generate_train_val_test(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='ca', help='dataset name')
+    parser.add_argument('--dataset', type=str, default='mad', help='dataset name')
     parser.add_argument('--years', type=str, default='2019', help='if use data from multiple years, please use underline to separate them, e.g., 2018_2019')
     parser.add_argument('--seq_length_x', type=int, default=12, help='sequence Length')
     parser.add_argument('--seq_length_y', type=int, default=12, help='sequence Length')

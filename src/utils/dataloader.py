@@ -273,6 +273,7 @@ def get_dataset_info(dataset):
          'GLA': [base_dir+'gla', base_dir+'gla/gla_rn_adj.npy', 3834],
          'GBA': [base_dir+'gba', base_dir+'gba/gba_rn_adj.npy', 2352],
          'SD': [base_dir+'sd', base_dir+'sd/sd_rn_adj.npy', 716],
+         'MAD': [base_dir+'mad', base_dir+'mad/mad_rn_adj.npy', 3965],
         }
     assert dataset in d.keys()
     return d[dataset]
