@@ -50,6 +50,7 @@ def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, a
         }
         feature_list.append(locations)
         feat_offset += 2
+        assert not np.any(np.isnan(locations)), "Location feature contains NaN values. Please check the metadata CSV file."
     
     if add_road:
         one_hot_road = pd.get_dummies(metadata['Fwy'], prefix='Road').values.reshape(num_nodes, -1)
@@ -63,8 +64,15 @@ def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, a
 
         feature_list.append(one_hot_road)
         feat_offset += one_hot_road.shape[1]
+        assert not np.any(np.isnan(one_hot_road)), "Road feature contains NaN values. Please check the metadata CSV file."
 
     if add_region:
+        
+        if pd.api.types.is_numeric_dtype(metadata['District']):
+            metadata['District'] = metadata['District'].fillna(0).astype(str)
+        if pd.api.types.is_numeric_dtype(metadata['County']):
+            metadata['County'] = metadata['County'].fillna(0).astype(str)
+        
         one_hot_region = pd.get_dummies(metadata[['District', 'County']], prefix='Region').values.reshape(num_nodes, -1)
         metadata_config['region'] = {
             'feature_num': one_hot_region.shape[1],
@@ -74,6 +82,7 @@ def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, a
         }
         feature_list.append(one_hot_region)
         feat_offset += one_hot_region.shape[1]
+        assert not np.any(np.isnan(one_hot_region)), "Region feature contains NaN values. Please check the metadata CSV file."
 
     if add_lanes:
         lanes = metadata['Lanes'].values.reshape(num_nodes, 1)
@@ -87,6 +96,7 @@ def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, a
         }
         feature_list.append(lanes)
         feat_offset += 1
+        assert not np.any(np.isnan(lanes)), "Lanes feature contains NaN values. Please check the metadata CSV file."
 
     if add_direction:
         one_hot_direction = pd.get_dummies(metadata['Direction'], prefix='Direction').values.reshape(num_nodes, -1)
@@ -98,6 +108,7 @@ def generate_metadata(metadata, add_location, add_road, add_region, add_lanes, a
         }
         feature_list.append(one_hot_direction)
         feat_offset += one_hot_direction.shape[1]
+        assert not np.any(np.isnan(one_hot_direction)), "Direction feature contains NaN values. Please check the metadata CSV file."
 
     data = np.concatenate(feature_list, axis=-1).astype(float)
     
@@ -219,6 +230,8 @@ def generate_train_val_test(args):
         
     metadata_raw = load_metadata(args)
     metadata, metadata_config = generate_metadata(metadata_raw, True, True, True, True, False)
+    
+    assert not np.any(np.isnan(metadata)), "Metadata contains NaN values. Please check the metadata CSV file."
 
     seq_length_x, seq_length_y = args.seq_length_x, args.seq_length_y
     x_offsets = np.arange(-(seq_length_x - 1), 1, 1)

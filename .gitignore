@@ -13,6 +13,7 @@ results/
 scripts_logs/
 img/*.png
 .DS_Store
+**.tar
 
 
 # Byte-compiled / optimized / DLL files

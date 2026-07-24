@@ -22,6 +22,7 @@ class BaseEngine():
 
         self._dataloader = dataloader
         self._scaler = scaler
+        self._scaler.to(self._device)
 
         self._loss_fn = loss_fn
         self._lrate = lrate
@@ -38,7 +39,7 @@ class BaseEngine():
         self._wandb_logger = wandb_logger
         self._training_timeout_min = training_timeout_min
 
-        self.label_mask_value = self._scaler.transform(torch.tensor([0.0])).to(dtype = torch.float32, device = self._device)[0]
+        self.label_mask_value = self._scaler.transform(torch.tensor([0.0]).to(dtype = torch.float32, device = self._device))[0]
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
 
         torch.manual_seed(seed)
@@ -62,9 +63,12 @@ class BaseEngine():
 
     def _to_tensor(self, nparray):
         if isinstance(nparray, list):
-            return [torch.tensor(array, dtype=torch.float32) for array in nparray]
-        else:
-            return torch.tensor(nparray, dtype=torch.float32)
+            return [self._to_tensor(array) for array in nparray]
+        if torch.is_tensor(nparray):
+            # The dataloader already hands out device tensors; re-wrapping them with
+            # torch.tensor() would warn and copy back through the host.
+            return nparray if nparray.dtype == torch.float32 else nparray.float()
+        return torch.tensor(nparray, dtype=torch.float32)
 
 
     def _inverse_transform(self, tensors):

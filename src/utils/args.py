@@ -36,6 +36,8 @@ def get_public_config():
     parser.add_argument('--mask_iter', type= int, default=0, help='Which mask to use from the mask folder.')
     parser.add_argument('--use_metadata', type=bool, default=False, help='Whether to use the metadata (e.g., time of day, day of week, etc.)')
 
+    parser.add_argument('--prefetch_depth', type=int, default=0, help='How many batches the dataloader assembles ahead of the training loop. 0 builds every batch on demand. Each slot holds a full pinned batch, so lower this for very wide datasets (e.g. CA with metadata).')
+
     parser.add_argument('--train_data_percentage', type=float, default=1.0, help='Percentage of training data to use (between 0 and 1)')
     parser.add_argument('--training_timeout_min', type=int, default=None, help='Timeout for the training phase in minutes. If None or 0, no timeout is implied.')
 
