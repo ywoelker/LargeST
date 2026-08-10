@@ -2,7 +2,7 @@ from simple_slurm import Slurm
 
 DATASET = 'SD'
 
-HOST = 'TUHH'
+HOST = 'H200-18'  # 'TUHH', 'H200', NESH
 
 META_DATA_FEATURES = {
         'SD': 38,
@@ -35,6 +35,27 @@ GBA_V100 = {
     
 
 }
+CA_H100 = {
+    'AGCRN': 32,
+    'ASTGCN': 32,
+    'D2STGNN': 4,
+    'DCRNN': 32, 
+    'DGCRN': 64, 
+    'GMAN': 1, 
+    'DSTAGNN': 64,
+    'ASTGCN': 64,
+    'OPCR': 32, 
+    'SPIN': 4,
+    'STTN': 8,
+    'STGODE': 64,
+    'PDFORMER': 4,
+    'BIGST': 32, 
+    'DSGNN': 64,
+    'GSNET': 64,
+    'GWNET': 32,
+    'STGCN': 64,
+}
+
 
 
 
@@ -63,6 +84,26 @@ def create_slurm_job(model_name:str, mask_name:str | None, mask_iter:int, gpu_h1
         slurm.add_cmd('export OMP_NUM_THREADS=8')
         slurm.add_cmd('module load cuda')
         slurm.add_cmd('source .venv/bin/activate')
+    
+    elif HOST.startswith('H200'):
+            slurm = Slurm(
+                "--job_name", job_name,
+                "--ntasks ", 1,
+                "--cpus_per_task", 8,
+                "--mem", "32000",
+                "--time", "12:00:00",
+                "--output", f'scripts_logs/{job_name}_%j.out',
+            )
+            
+            if HOST == 'H200-71':
+                slurm.add_arguments( "--gres", 'gpu:nvidia_h200_nvl_3g.71gb:1' )
+            if HOST == 'H200-18':
+                slurm.add_arguments( "--gres", 'gpu:nvidia_h200_nvl_1g.18gb:1' )
+            if HOST == 'H200':
+                slurm.add_arguments( "-w", "h3a-vms-gpu1-cn01", "--gres", 'gpu:1')
+    
+            slurm.add_cmd('export OMP_NUM_THREADS=8')
+            slurm.add_cmd('source .venv/bin/activate')
 
     else:
 
