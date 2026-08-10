@@ -465,7 +465,7 @@ def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
                                                 train_mask, drop_unavailable_sensors)
         else:
             dataloader[cat + '_loader'] = build(full, idx, None, False)
-            if train_mask is not None:
+            if train_mask is not None and not drop_unavailable_sensors:
                 dataloader[cat + '_loader_drop'] = build(subset if subset is not None else full, idx, train_mask, False)
             if cat == 'test':
                 dataloader['benchmark_loader'] = build(full, idx, None, False)
