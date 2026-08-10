@@ -8,5 +8,10 @@ class HL(BaseModel):
 
 
     def forward(self, input, label=None):  # (b, t, n, f)
-        x = input[:,[-1],:,:].expand(-1, self.horizon, -1, -1)
+        print(input.shape)
+        x = input[:,[-1],:,:]
+        x = x[:,:,:,[0]]
+        print(x.shape)
+        x = x.expand(-1, self.horizon, -1, -1)
+        
         return x
