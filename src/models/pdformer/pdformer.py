@@ -350,6 +350,7 @@ class PDFormer(AbstractTrafficStateModel):
         self.quan_delta = config.get('quan_delta', 0.25)
         self.far_mask_delta = config.get('far_mask_delta', 5)
         self.dtw_delta = config.get('dtw_delta', 5)
+        self.horizon = config.get('horizon', 12)
 
         self.use_curriculum_learning = config.get('use_curriculum_learning', True)
         self.step_size = config.get('step_size', 2500)

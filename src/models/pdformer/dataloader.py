@@ -11,6 +11,8 @@ from pathlib import Path
 import torch
 from tqdm import tqdm
 
+from src.utils.dataloader import load_dataset as load_dataset_utils
+
 try:
     from fastdtw import fastdtw
 except ImportError:
@@ -193,85 +195,27 @@ class StandardScaler():
 
     def inverse_transform(self, data):
         return (data * self.std) + self.mean
+    
+    def to(self, device):
+        self.mean = self.mean.to(device)
+        self.std = self.std.to(device)
+        return self
 
 
 def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
-    ptr = np.load(os.path.join(data_path, args.years, 'his.npz'), allow_pickle=True)
-    logger.info('Data shape: ' + str(ptr['data'].shape))
     
-    dataloader = {}
-
-    use_masks = args.mask_name is not None
-
-    if use_masks:
-        mask_path = Path('data/masks') / args.dataset.lower() / args.mask_name / f'mask_{args.mask_iter:02d}'
-        input_mask = torch.load(mask_path / 'input_mask.pt').numpy().squeeze()
-        output_mask = torch.load(mask_path / 'output_mask.pt').numpy().squeeze()
-
-        mask_config = json.load(open(mask_path / '../config.json', 'r'))
-
-        if mask_config.get('train_dropout', 0) > 0:
-            train_mask = torch.load(mask_path / 'train_mask.pt').numpy().squeeze()
-            # train_mask = np.tile( train_mask[np.newaxis, :], (input_mask.shape[0], 1))
-            train_mask = train_mask.reshape(-1, 1)
-        else:
-            train_mask = None
-    else:
-        input_mask = None
-        output_mask = None
-        train_mask = None
-
-    if args.use_metadata:
-            metadata = ptr.get('metadata', None)
-            metadata_dict = ptr.get('metadata_dict', None)
-    else:
-        metadata = None
-        metadata_dict = None
-
-    idx_dict = {}
-    for cat in ['train', 'val', 'test']:
-        idx = np.load(os.path.join(data_path, args.years, 'idx_' + cat + '.npy'))
-        idx_dict[cat] = idx
-
-        if use_masks and (cat == 'train' or cat == 'val'):
-            dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
-                                                 args.seq_len, args.horizon, args.bs, logger, 
-                                                 metadata = metadata, 
-                                                 metadata_dict = metadata_dict, 
-                                                 input_mask=input_mask,
-                                                 output_mask=output_mask,
-                                                 available_sensors = train_mask,
-                                                 drop_unavailable_sensors = drop_unavailable_sensors,
-                                                 )
-        else:         
-            dataloader[cat + '_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
-                                                 args.seq_len, args.horizon, args.bs, logger, 
-                                                 metadata = metadata, 
-                                                 metadata_dict = metadata_dict, 
-                                                 input_mask=input_mask,
-                                                 output_mask=output_mask,
-                                                 available_sensors = None
-                                                 )
-            if cat == 'test':
-                dataloader['benchmark_loader'] = DataLoader(ptr['data'][..., :args.input_dim], idx, \
-                                                    args.seq_len, args.horizon, args.bs, logger, 
-                                                    metadata = metadata, 
-                                                    metadata_dict = metadata_dict, 
-                                                    input_mask=input_mask,
-                                                    output_mask=output_mask,
-                                                    available_sensors = None
-                                                    )
-
-    scaler = StandardScaler(mean=ptr['mean'], std=ptr['std'])
-
+    dataloader, scaler = load_dataset_utils(data_path, args, logger, drop_unavailable_sensors=drop_unavailable_sensors)
+    print(f"Loaded dataset from {data_path} with drop_unavailable_sensors={drop_unavailable_sensors}"
+          )
+    print(getattr(args, "model_description", "").lower())
     if getattr(args, "model_description", "").lower() == "pdformer":
         data_feature = build_pdformer_data_feature(
-            raw_data=ptr['data'],
-            train_idx=idx_dict['train'],
+            raw_data=dataloader['train_loader'].data,
+            train_idx=dataloader['train_loader'].idx,
             scaler=scaler,
             args=args,
             logger=logger,
-            metadata=metadata,
+            metadata=dataloader['train_loader'].metadata if getattr(args, "use_metadata", False) else None,
         )
         data_feature["num_batches"] = dataloader["train_loader"].num_batch
 
