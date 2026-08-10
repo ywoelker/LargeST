@@ -294,9 +294,9 @@ class DeepStateGNN(BaseModel):
         
 
 
-        self.linear_obs_2_dsn_conv = linearized_conv(hid_dim  + 2 * time_emb_dim, hid_dim, self.dropout, self.attention_method, self.tau, self.random_feature_dim, non_linearity=True, key_dim = node_emb_dim)
+        self.linear_obs_2_dsn_conv = linearized_conv(2 * hid_dim  + 2 * time_emb_dim, hid_dim, self.dropout, self.attention_method, self.tau, self.random_feature_dim, non_linearity=True, key_dim = node_emb_dim)
 
-        self.hid_dim_times_after_conv = 1
+        self.hid_dim_times_after_conv = 3
 
         # self.W_in = nn.Conv2d(num_context +  hid_dim + 2 * time_emb_dim, hid_dim, kernel_size=(1, 1), bias=True)
         # self.W_out = nn.Conv2d(2 * (node_emb_dim + hid_dim), hid_dim * self.hid_dim_times_after_conv, kernel_size=(1, 1), bias=True)
@@ -306,7 +306,7 @@ class DeepStateGNN(BaseModel):
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
         self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
         
-        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1) + 2 * time_emb_dim , out_dim, kernel_size=(1, 1), bias=True)
+        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1 +1) + 2 * time_emb_dim , out_dim, kernel_size=(1, 1), bias=True)
 
     def forward(self, x, feat=None, static_prefilter = None, valid_observations = None, query_index = None):       
         # x: (B, N, T, D)
@@ -333,7 +333,7 @@ class DeepStateGNN(BaseModel):
         week_emb = week_emb.transpose(1, 2).unsqueeze(-1) # (B, dim, N, 1)
 
         x_g = torch.cat([x_context, time_emb, week_emb], dim=1) # (B, D-3 +  dim*2, N, 1)
-        x = torch.cat([input_emb + x_context, time_emb, week_emb], dim=1) # (B, D-3 + dim*3, N, 1)
+        x = torch.cat([input_emb , x_context, time_emb, week_emb], dim=1) # (B, D-3 + dim*3, N, 1)
 
         # linearized spatial convolution
         if query_index is not None:

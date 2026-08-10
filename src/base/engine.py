@@ -273,7 +273,9 @@ class BaseEngine():
         
         if 'test_loader_drop' in self._dataloader and not self._dataloader['test_loader_drop'].drop_unavailable_sensors:
             self.benchmark_interpolation_for_dropped_sensors()
-        self.benchmark_inference_time(self._dataloader['benchmark_loader'])
+        benchmark_results = self.benchmark_inference_time(self._dataloader['benchmark_loader'])
+        
+        logger.info('Benchmark inference time: {:.4f}s +- {:.4f}s'.format(benchmark_results[0], benchmark_results[1]))
         
 
 
