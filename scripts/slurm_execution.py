@@ -218,6 +218,22 @@ def ablation_static_prefilter_mode():
                 additional_cmd_str = f' --static_prefilter_mode {static_prefilter_mode} --n_context {n_context} '
                 
                 create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=False, additional_cmd_str=additional_cmd_str + f'--use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_static_prefilter_mode --training_timeout_min 600 --gcn_layers 2 --dropout 0.1 --n_context_emb 64 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001 --max_epochs 50')
+                
+                
+def ablation_static_prefilter_dsn_types():
+    mask_iter = 3
+    for mask_name in [None, 'tr_drop_050', 'tr_drop_075','point_missing_075']:
+        model_name = 'DSGNN'
+        
+        
+        
+        for dsn_type in [None, 'neighborhoods','road', 'region', 'num_lanes', 'direction']:
+            
+            additional_cmd_str = ' --static_prefilter_mode static_dsn '
+            if dsn_type is not None:
+                additional_cmd_str += f' --ablation_static_dsn_leave_out {dsn_type} '
+            
+            create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=False, additional_cmd_str=additional_cmd_str + f'--use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_static_prefilter_dsn_type --training_timeout_min 600 --gcn_layers 2 --dropout 0.1 --n_context_emb 64 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001 --max_epochs 50')
             
 def ablation_attention_method():
     mask_iter = 0
@@ -242,12 +258,9 @@ if __name__ == '__main__':
     # ablation_hidden_dim()
     # ablation_static_prefilter_mode()
     # ablation_attention_method()
+    
+    ablation_static_prefilter_dsn_types()
 
-    for mask_iter in [0,1]:
-        for mask_name in [None,'point_missing_050', 'point_missing_075', 'point_missing_095']: #[None, 'tr_drop_025', 'tr_drop_050', 'tr_drop_075', 'point_missing_050', 'point_missing_075', 'point_missing_095']: 
-            # for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN']:
-            for model_name in ['DSGNN', 'SparseStateGNN']:#['D2STGNN', 'GMAN', 'PDFormer', 'SPIN', 'OPCR']: #['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN' ,'PDFormer', 'SPIN']:
-                gpu_h100 = model_name in ['D2STGNN', 'GMAN', 'DCRNN', 'SPIN']
 
                 if DATASET == 'SD':
                     if model_name.lower() == 'dstagnn':

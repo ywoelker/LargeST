@@ -44,6 +44,7 @@ def get_config():
     parser.add_argument('--n_rand_dim', type=int, default=64)
 
     parser.add_argument('--static_prefilter_mode', type = str, default= 'static_dsn', choices=['none', 'static_dsn', 'identity', 'fixed'], help='Whether to use static prefiltering based on static assignment matrices.')
+    parser.add_argument('--ablation_static_dsn_leave_out', type=str, default=None, help='Whether to ablate the static prefiltering by leaving out the static DSN assignment matrix from the prefiltering.')
     parser.add_argument('--additional_loss_weight', type=float, default=0.0)
 
     parser.add_argument('--lrate', type=float, default=0.005)
@@ -112,10 +113,29 @@ def main():
 
 
     if args.static_prefilter_mode == 'static_dsn':
-        static_assignment = np.load(os.path.join(data_path, args.years, 'static_assignment.npz'))['static_assignment_matrices']
+        static_assignment_file = np.load(os.path.join(data_path, args.years, 'static_assignment.npz'), allow_pickle=True)
+        static_assignment = static_assignment_file['static_assignment_matrices']
 
-        static_dsn_count = static_assignment.shape[1]
-        args.n_context = static_dsn_count
+
+        if 'static_assignmnent_dimensions' in static_assignment_file and args.ablation_static_dsn_leave_out is not None and args.ablation_static_dsn_leave_out in static_assignment_file['static_assignmnent_dimensions'][()]:
+            
+            dimensions = static_assignment_file['static_assignmnent_dimensions'][()]
+            
+            leave_out_indices_ranges = dimensions[args.ablation_static_dsn_leave_out]
+            leave_out_indices = np.arange(leave_out_indices_ranges[0], leave_out_indices_ranges[1])
+                            
+            static_assignment = np.delete(static_assignment, leave_out_indices, axis=1)
+            
+            static_dsn_count = static_assignment.shape[1]
+            args.n_context = static_dsn_count
+            
+            print(f"Static assignment shape after leaving out {args.ablation_static_dsn_leave_out}: {static_assignment.shape}")
+            
+        else:
+            static_dsn_count = static_assignment.shape[1]
+            args.n_context = static_dsn_count
+            
+        
 
     elif args.static_prefilter_mode == 'identity':
         static_assignment = np.eye(node_num)
