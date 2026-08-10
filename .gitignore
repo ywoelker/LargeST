@@ -14,6 +14,7 @@ scripts_logs/
 img/*.png
 .DS_Store
 **.tar
+uv.lock
 
 
 # Byte-compiled / optimized / DLL files
