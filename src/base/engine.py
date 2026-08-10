@@ -3,10 +3,11 @@ import time
 import torch
 import numpy as np
 from tqdm import tqdm
+from wandb.jupyter import logger
 from src.utils.metrics import masked_mape, masked_mae
 from src.utils.metrics import masked_rmse
 from src.utils.metrics import compute_all_metrics
-from src.utils.dataloader import DataLoader
+from src.utils.dataloader import DataLoader, get_dataset_info, load_adj_from_numpy
 from src.utils.logging import WandbLogger
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -14,7 +15,7 @@ import matplotlib.pyplot as plt
 
 class BaseEngine():
     def __init__(self, device, model, dataloader: dict[str,DataLoader], scaler, sampler, loss_fn, lrate, optimizer, \
-                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger:WandbLogger, training_timeout_min:int):
+                 scheduler, clip_grad_value, max_epochs, patience, log_dir, logger, seed, wandb_logger:WandbLogger, training_timeout_min:int, trainable_model: bool = True):
         super().__init__()
         self._device = device
         self.model = model
@@ -38,6 +39,7 @@ class BaseEngine():
         self._seed = seed
         self._wandb_logger = wandb_logger
         self._training_timeout_min = training_timeout_min
+        self.trainable_model = trainable_model 
 
         self.label_mask_value = self._scaler.transform(torch.tensor([0.0]).to(dtype = torch.float32, device = self._device))[0]
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
@@ -155,7 +157,6 @@ class BaseEngine():
             # X (b, t, n, f), label (b, t, n, 1)
             X, label = self._to_device(self._to_tensor([X, label]))
             
-
             self.current_x_mask = self._to_device(self._to_tensor(x_mask))
             self.current_label_mask = self._to_device(self._to_tensor(label_mask))
 
@@ -270,22 +271,27 @@ class BaseEngine():
 
         self.evaluate('test')
         
+        if 'test_loader_drop' in self._dataloader and not self._dataloader['test_loader_drop'].drop_unavailable_sensors:
+            self.benchmark_interpolation_for_dropped_sensors()
         self.benchmark_inference_time(self._dataloader['benchmark_loader'])
+        
 
 
     def evaluate(self, mode) -> tuple:
-        if mode == 'test':
+        if mode == 'test' and self.trainable_model:
             self.load_model(self._save_path)
         self.model.eval()
 
         preds = []
         labels = []
+        label_masks = []
         with torch.no_grad():
             self.current_available_sensors = self._dataloader[mode + '_loader'].available_sensors
             for X, label, x_mask, label_mask in tqdm(self._dataloader[mode + '_loader'].get_iterator(),total = self._dataloader[mode + '_loader'].num_batch, desc=f'{"Validation" if mode == "val" else "Test"}'):
                 
                 # X (b, t, n, f), label (b, t, n, 1)
                 X, label = self._to_device(self._to_tensor([X, label]))
+
                 self.current_x_mask = self._to_device(self._to_tensor(x_mask))
                 self.current_label_mask = self._to_device(self._to_tensor(label_mask))
      
@@ -294,9 +300,11 @@ class BaseEngine():
 
                 preds.append(pred.squeeze(-1).cpu())
                 labels.append(label.squeeze(-1).cpu())
+                label_masks.append(label_mask.squeeze(-1).cpu())
 
         preds = torch.cat(preds, dim=0)
         labels = torch.cat(labels, dim=0)
+        label_masks = torch.cat(label_masks, dim = 0)
 
         # handle the precision issue when performing inverse transform to label
         mask_value = self.mask_value(labels)
@@ -306,9 +314,10 @@ class BaseEngine():
         print((labels == mask_value).sum())
 
         if mode == 'val':
-            mae = masked_mae(preds, labels, mask_value).item()
-            mape = masked_mape(preds, labels, mask_value).item()
-            rmse = masked_rmse(preds, labels, mask_value).item()
+            mae, mape, rmse = compute_all_metrics(preds, labels, mask_value, label_mask = label_masks)
+            
+            #### IMPORTANT: The validation set masks out the labels for the unseen sensors, so it makes no sense to calculate the metrics for the unseen sensors here in any kind.             
+            
             return mae, mape, rmse
 
         elif mode == 'test':
@@ -318,7 +327,7 @@ class BaseEngine():
             print('Check mask value', mask_value)
 
             for i in range(self.model.horizon):
-                res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value)
+                res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value, label_mask = label_masks[:,i,:])
                 log = 'Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
                 self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
                 self._wandb_logger.log_metrics({
@@ -343,7 +352,7 @@ class BaseEngine():
             if training_available_sensors is not None:
 
                 for i in range(self.model.horizon):
-                    res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 1], labels[:,i,training_available_sensors.squeeze() == 1], mask_value)
+                    res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 1], labels[:,i,training_available_sensors.squeeze() == 1], mask_value, label_mask = label_masks[:,i,training_available_sensors.squeeze() == 1])
                     log = '\tAvailable Sensors - Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
                     self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
                     self._wandb_logger.log_metrics({
@@ -355,7 +364,8 @@ class BaseEngine():
                 res = compute_all_metrics(
                     preds[:, :, training_available_sensors.squeeze() == 1],
                     labels[:, :, training_available_sensors.squeeze() == 1],
-                    mask_value
+                    mask_value,
+                    label_mask = label_masks[:, :, training_available_sensors.squeeze() == 1]
                 )
                 log = 'Available Sensors - Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
                 self._logger.info(log.format(res[0], res[2], res[1]))
@@ -369,7 +379,7 @@ class BaseEngine():
                 ## Unavailable sensors
 
                 for i in range(self.model.horizon):
-                    res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 0], labels[:,i,training_available_sensors.squeeze() == 0], mask_value)
+                    res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 0], labels[:,i,training_available_sensors.squeeze() == 0], mask_value, label_mask = label_masks[:,i,training_available_sensors.squeeze() == 0])
                     log = '\tUnavailable Sensors - Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
                     self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
                     self._wandb_logger.log_metrics({
@@ -381,7 +391,7 @@ class BaseEngine():
                 res = compute_all_metrics(
                     preds[:, :, training_available_sensors.squeeze() == 0],
                     labels[:, :, training_available_sensors.squeeze() == 0],
-                    mask_value
+                    mask_value, label_mask = label_masks[:, :, training_available_sensors.squeeze() == 0]
                 )
                 log = 'Unavailable Sensors - Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
                 self._logger.info(log.format(res[0], res[2], res[1]))
@@ -398,7 +408,196 @@ class BaseEngine():
         
         
         
+    def benchmark_interpolation_for_dropped_sensors(self) -> tuple:
+        mode = 'test'
+        self.load_model(self._save_path)
+        self.model.eval()
+
+        preds = []
+        labels = []
+        label_masks = []
+        self.current_available_sensors = self._dataloader[mode + '_loader_drop'].available_sensors
         
+        path, adj_path, _ = get_dataset_info(self._dataloader['test_loader_drop'].dataset)
+        
+        import pandas as pd
+        meta_data = pd.read_csv(path + f'/{self._dataloader["test_loader_drop"].dataset.lower()}_meta.csv')
+        from sklearn.metrics import pairwise_distances
+        
+        distances = pairwise_distances(meta_data[['Lat', 'Lng']], metric='euclidean')
+        distances = distances #+ np.diag(np.inf * np.ones(distances.shape[0]))
+        distances[:, self.current_available_sensors.squeeze() == 0] = np.inf
+
+        K = 5
+        top_k_indices = np.argsort(distances, axis=1)[:,:K]
+        
+        # print('Top-K indices for each sensor: ', top_k_indices)
+        
+        # adj_mx = load_adj_from_numpy(adj_path)
+        
+        # # set diagonal of adjacency matrix to 0
+        # adj_mx = adj_mx - np.diag(np.diag(adj_mx))
+        
+        # get the TOP-K indices of the columns for each row with the largest values in the adjacency matrix
+        # top_k_indices = np.argsort(adj_mx, axis=1)[:, -K:]
+        
+        with torch.no_grad():
+            for (X, label, x_mask, label_mask), (X_test, label_test,_, label_mask_test) in tqdm(
+                zip(
+                    self._dataloader[mode + '_loader_drop'].get_iterator(),
+                    self._dataloader[mode + '_loader'].get_iterator(),
+                ),
+                    total = self._dataloader[mode + '_loader_drop'].num_batch, desc=f'{"Validation" if mode == "val" else "Test"}'):
+                
+                # X (b, t, n, f), label (b, t, n, 1)
+                X, label = self._to_device(self._to_tensor([X, label]))
+                X_test, label_test = self._to_device(self._to_tensor([X_test, label_test]))
+
+                self.current_x_mask = self._to_device(self._to_tensor(x_mask))
+                self.current_label_mask = self._to_device(self._to_tensor(label_mask_test))
+        
+                pred, label, _ = self.forward(X, label, isTrain=False)
+                ####
+                ## for those sensors that arent available take the average of the top-K neighbors to fill in the missing values
+                
+                pred[:, :, self.current_available_sensors.squeeze() == 0, :] = torch.nan
+                
+                # for nb in range(pred.shape[0]):
+                for j in range(pred.shape[2]):
+                    if not self.current_available_sensors.squeeze()[j]:
+                        # for t in range(pred.shape[1]):    
+                            # assert np.isin(top_k_indices[j],np.argwhere( self.current_available_sensors).squeeze()).all(), "Top-K indices should only include available sensors"
+                            # print(f'Replacing sensor {j} with sensors {top_k_indices[j]}: Absolute difference: {torch.mean(torch.abs(pred[:, t, top_k_indices[j][0], :] - pred[:, t, j, :]))}')
+                            replacement_mean = torch.mean(pred[:, :, top_k_indices[j], :], dim=2)
+                            
+                            assert pred[:, :, j, :].shape == replacement_mean.shape, "Shape mismatch between pred and replacement mean"
+                            
+                            pred[:, :, j, :] = replacement_mean
+                ####
+
+                assert not torch.isnan(pred).any(), "Predictions contain NaN values after interpolation"                
+                
+                pred, label = self._inverse_transform([pred, label])
+                label_test = self._inverse_transform(label_test)
+                
+                
+                # print(torch.mean(torch.abs(label_test[:, :, self.current_available_sensors.squeeze() == 1] - label[:, :, self.current_available_sensors.squeeze() == 1])))
+
+                preds.append(pred.squeeze(-1).cpu())
+                labels.append(label_test.squeeze(-1).cpu())
+                label_masks.append(self.current_label_mask.squeeze(-1).cpu())
+
+        preds = torch.cat(preds, dim=0)
+        labels = torch.cat(labels, dim=0)
+        label_masks = torch.cat(label_masks, dim = 0)
+
+        # handle the precision issue when performing inverse transform to label
+        mask_value = self.mask_value(labels)
+
+        print('Check mask value for evaluation: ', mask_value)
+
+        print((labels == mask_value).sum())
+        
+        
+        np.savez(
+            self._save_path + '/results_interpolation.npz',
+            preds=preds.numpy(),
+            labels=labels.numpy(),
+            label_masks=label_masks.numpy(),
+            top_k_indices=top_k_indices,
+            mask_value=mask_value,
+            training_available_sensors=self.current_available_sensors
+        )
+
+        test_mae = []
+        test_mape = []
+        test_rmse = []
+        print('Check mask value', mask_value)
+
+        for i in range(self.model.horizon):
+            res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value, label_mask = label_masks[:,i,:])
+            log = 'Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+            self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+            self._wandb_logger.log_metrics({
+                f'test_dropped/horizon_{i+1}/mae': res[0],
+                f'test_dropped/horizon_{i+1}/mape': res[1],
+                f'test_dropped/horizon_{i+1}/rmse': res[2]
+            }, step=self.epoch+1)
+            test_mae.append(res[0])
+            test_mape.append(res[1])
+            test_rmse.append(res[2])
+
+        log = 'Average Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+        self._wandb_logger.log_metrics({
+            'test_dropped/avg_mae': np.mean(test_mae),
+            'test_dropped/avg_mape': np.mean(test_mape),
+            'test_dropped/avg_rmse': np.mean(test_rmse)
+        }, step=self.epoch+1)
+        self._logger.info(log.format(np.mean(test_mae), np.mean(test_rmse), np.mean(test_mape)))
+
+
+        training_available_sensors = self._dataloader['train_loader'].available_sensors
+        if training_available_sensors is not None:
+
+            for i in range(self.model.horizon):
+                
+                res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 1], labels[:,i,training_available_sensors.squeeze() == 1], mask_value, label_mask = label_masks[:,i,training_available_sensors.squeeze() == 1])
+                log = '\tAvailable Sensors - Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+                self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+                self._wandb_logger.log_metrics({
+                    f'test_dropped/available_sensors/horizon_{i+1}/mae': res[0],
+                    f'test_dropped/available_sensors/horizon_{i+1}/mape': res[1],
+                    f'test_dropped/available_sensors/horizon_{i+1}/rmse': res[2]
+                }, step=self.epoch+1)
+
+            res = compute_all_metrics(
+                preds[:, :, training_available_sensors.squeeze() == 1],
+                labels[:, :, training_available_sensors.squeeze() == 1],
+                mask_value,
+                label_mask = label_masks[:, :, training_available_sensors.squeeze() == 1]   
+            )
+            log = 'Available Sensors - Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+            self._logger.info(log.format(res[0], res[2], res[1]))
+            self._wandb_logger.log_metrics({
+                'test_dropped/available_sensors/avg_mae': res[0],
+                'test_dropped/available_sensors/avg_mape': res[1],
+                'test_dropped/available_sensors/avg_rmse': res[2]
+            }, step=self.epoch+1)
+
+
+            ## Unavailable sensors
+            
+                
+            
+                
+
+            for i in range(self.model.horizon):
+                res = compute_all_metrics(preds[:,i,training_available_sensors.squeeze() == 0], labels[:,i,training_available_sensors.squeeze() == 0], mask_value, label_mask = label_masks[:,i,training_available_sensors.squeeze() == 0])
+                log = '\tUnavailable Sensors - Horizon {:d}, Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+                self._logger.info(log.format(i + 1, res[0], res[2], res[1]))
+                self._wandb_logger.log_metrics({
+                    f'test_dropped/unavailable_sensors/horizon_{i+1}/mae': res[0],
+                    f'test_dropped/unavailable_sensors/horizon_{i+1}/mape': res[1],
+                    f'test_dropped/unavailable_sensors/horizon_{i+1}/rmse': res[2]
+                }, step=self.epoch+1)
+
+            res = compute_all_metrics(
+                preds[:, :, training_available_sensors.squeeze() == 0],
+                labels[:, :, training_available_sensors.squeeze() == 0],
+                mask_value, label_mask = label_masks[:, :, training_available_sensors.squeeze() == 0]
+            )
+            log = 'Unavailable Sensors - Test MAE: {:.4f}, Test RMSE: {:.4f}, Test MAPE: {:.4f}'
+            self._logger.info(log.format(res[0], res[2], res[1]))
+            self._wandb_logger.log_metrics({
+                'test_dropped/unavailable_sensors/avg_mae': res[0],
+                'test_dropped/unavailable_sensors/avg_mape': res[1],
+                'test_dropped/unavailable_sensors/avg_rmse': res[2]
+            }, step=self.epoch+1)
+
+            return np.mean(test_mae), np.mean(test_mape), np.mean(test_rmse)
+
+        else:
+            raise ValueError('Invalid mode {}'.format(mode))
         
         
     def benchmark_inference_time(self, data_loader) -> tuple:

@@ -50,8 +50,8 @@ def masked_mape(preds, labels, null_val, label_mask = None):
     return torch.sum(loss) / mask.sum().clamp(min=1)
 
 
-def compute_all_metrics(preds, labels, null_val):
-    mae = masked_mae(preds, labels, null_val).item()
-    mape = masked_mape(preds, labels, null_val).item()
-    rmse = masked_rmse(preds, labels, null_val).item()
+def compute_all_metrics(preds, labels, null_val, label_mask = None):
+    mae = masked_mae(preds, labels, null_val, label_mask).item()
+    mape = masked_mape(preds, labels, null_val, label_mask).item()
+    rmse = masked_rmse(preds, labels, null_val, label_mask).item()
     return mae, mape, rmse

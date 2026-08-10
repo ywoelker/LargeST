@@ -8,7 +8,7 @@ import threading
 from pathlib import Path
 
 class DataLoader(object):
-    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None, available_sensors = None, drop_unavailable_sensors = False, data_c0 = None, device = None, prefetch_depth = 2):
+    def __init__(self, data, idx, seq_len, horizon, bs, logger, pad_last_sample=False, metadata = None, metadata_dict = None, input_mask = None, output_mask = None, available_sensors = None, drop_unavailable_sensors = False, data_c0 = None, device = None, prefetch_depth = 2, dataset = None):
         """
 
         ## Parameters
@@ -60,6 +60,7 @@ class DataLoader(object):
         self.y_offsets = np.arange(1, (horizon + 1), 1)
         self.seq_len = seq_len
         self.horizon = horizon
+        self.dataset = dataset
 
 
         self.n_sensors = self.data.shape[1]
@@ -448,8 +449,9 @@ def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
                           data_c0 = arrays['data_c0'],
                           device = device,
                           prefetch_depth = prefetch_depth,
+                          dataset = args.dataset.upper() 
                           )
-
+    
     for cat in ['train', 'val', 'test']:
         idx = np.load(os.path.join(data_path, args.years, 'idx_' + cat + '.npy'))
 
@@ -463,6 +465,8 @@ def load_dataset(data_path, args, logger, drop_unavailable_sensors = False):
                                                 train_mask, drop_unavailable_sensors)
         else:
             dataloader[cat + '_loader'] = build(full, idx, None, False)
+            if train_mask is not None:
+                dataloader[cat + '_loader_drop'] = build(subset if subset is not None else full, idx, train_mask, False)
             if cat == 'test':
                 dataloader['benchmark_loader'] = build(full, idx, None, False)
 
