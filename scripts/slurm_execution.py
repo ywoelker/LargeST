@@ -1,8 +1,8 @@
 from simple_slurm import Slurm
 
-DATASET = 'SD'
+DATASET = 'GBA'
 
-HOST = 'H200-18'  # 'TUHH', 'H200', NESH
+HOST = 'H200'  # 'TUHH', 'H200', NESH
 
 META_DATA_FEATURES = {
         'SD': 38,
@@ -89,7 +89,7 @@ def create_slurm_job(model_name:str, mask_name:str | None, mask_iter:int, gpu_h1
             slurm = Slurm(
                 "--job_name", job_name,
                 "--ntasks ", 1,
-                "--cpus_per_task", 8,
+                "--cpus_per_task", 2,
                 "--mem", "32000",
                 "--time", "12:00:00",
                 "--output", f'scripts_logs/{job_name}_%j.out',
@@ -302,10 +302,10 @@ if __name__ == '__main__':
     
     # ablation_static_prefilter_dsn_types()
 
-    for mask_iter in [0,1,2]:
-        for mask_name in ['tr_drop_025', 'tr_drop_050', 'tr_drop_075']: #[None, 'tr_drop_025', 'tr_drop_050', 'tr_drop_075', 'point_missing_050', 'point_missing_075', 'point_missing_095']: 
+    for mask_iter in [0]:
+        for mask_name in [ 'neighborhood_drop_0125', 'road_drop_0125']:# 'road_drop_025', 'road_drop_050',#['tr_drop_025', 'tr_drop_050', 'tr_drop_075']: #[None, 'tr_drop_025', 'tr_drop_050', 'tr_drop_075', 'point_missing_050', 'point_missing_075', 'point_missing_095']: 
             # for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN']:
-            for model_name in ['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'GMAN', 'PDFormer' 'DCRNN', 'D2STGNN', 'GWNET', 'OPCR', 'SPIN', 'STGode', 'DSGNN']:# ['D2STGNN', 'GMAN', 'PDFormer', 'SPIN', 'OPCR']: #['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN' ,'PDFormer', 'SPIN']:
+            for model_name in ['BigST', 'GSNet', 'DSGNN', 'COMLP', 'D2STGNN', 'SPIN']:#['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'GMAN', 'PDFormer' 'DCRNN', 'D2STGNN', 'GWNET', 'OPCR', 'SPIN', 'STGode', 'DSGNN']:# ['D2STGNN', 'GMAN', 'PDFormer', 'SPIN', 'OPCR']: #['BigST', 'GSNet', 'AGCRN', 'ASTGCN', 'STGCN', 'DCRNN', 'D2STGNN', 'GMAN', 'GWNET', 'OPCR', 'STGode', 'DSGNN' ,'PDFormer', 'SPIN']:
                 gpu_h100 = model_name in ['D2STGNN', 'GMAN', 'DCRNN', 'SPIN']
 
                 if DATASET == 'SD':
@@ -360,7 +360,7 @@ if __name__ == '__main__':
                 if (model_name.lower() == 'dsgnn' or model_name.lower() == 'gsnet') and HOST == 'H200':
                     additional_cmd_str = additional_cmd_str + ' --prefetch_depth 1'
                     
-                slurm = create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=True, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags tr_drop_SD --max_epochs 50 --training_timeout_min 600')
+                slurm = create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=True, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags meaningful_drop --max_epochs 50 --training_timeout_min 600')
                                  
                 #'--wandb_tags inference_time_benchmark --max_epochs 1 --train_data_percentage 0.02')
                 # create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100= True, additional_cmd_str=additional_cmd_str + f' --wandb_tags benchmark_GBA --training_timeout_min 600')
