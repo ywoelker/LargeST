@@ -306,7 +306,18 @@ class DeepStateGNN(BaseModel):
         self.bn_obs_to_context = nn.LayerNorm(hid_dim)
         self.bn_context_to_obs = nn.LayerNorm(hid_dim * self.hid_dim_times_after_conv)
         
-        self.regression_layer = nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1 +1) + 2 * time_emb_dim , out_dim, kernel_size=(1, 1), bias=True)
+        self.regression_layer = nn.Sequential(
+            nn.Conv2d(hid_dim* (self.hid_dim_times_after_conv + 1 +1) + 2 * time_emb_dim , hid_dim, kernel_size=(1, 1), bias=True),
+            nn.ReLU(),
+            nn.Conv2d(hid_dim, hid_dim, kernel_size=(1, 1), bias=True),            
+            nn.ReLU(),
+            nn.Conv2d(hid_dim, out_dim, kernel_size=(1, 1), bias=True)            
+        )
+        
+        self.dropout_layer = nn.Dropout(p=dropout)
+        
+        
+        
 
     def forward(self, x, feat=None, static_prefilter = None, valid_observations = None, query_index = None):       
         # x: (B, N, T, D)
@@ -457,8 +468,8 @@ class DeepStateGNN(BaseModel):
 
 
     #### Inverse ends
-        
-        
+        x = self.dropout_layer(x)
+                
         #### Here is from BigST for a 1-1 mapping from nodes to the traffic features
         x_pool.append(x) # + x_org) # (B, dim*4 + dim*4, N, 1)
         x = torch.cat(x_pool, dim=1) # (B, dim*7 + D - 3, N, 1)
