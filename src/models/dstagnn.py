@@ -16,7 +16,7 @@ class DSTAGNN(BaseModel):
                                                      nb_chev_filter, nb_time_filter, time_stride, cheb_poly,
                                                      adj_pa, self.node_num, self.seq_len, d_model, d_k, d_v, n_head)])
 
-        self.BlockList.extend([DSTAGNN_block(device, self.input_dim * nb_time_filter, nb_chev_filter, order,
+        self.BlockList.extend([DSTAGNN_block(device, self.input_dim , nb_chev_filter, order,
                                             nb_chev_filter, nb_time_filter, 1, cheb_poly,
                                             adj_pa, self.node_num, self.seq_len // time_stride, d_model, d_k, d_v, n_head) for _ in range(nb_block - 1)])
 
@@ -75,16 +75,21 @@ class DSTAGNN_block(nn.Module):
             nn.Dropout(0.05),
         )
         self.ln = nn.LayerNorm(nb_time_filter)
+        
+        print("in_channels:", in_channels, "nb_chev_filter:", nb_chev_filter, "nb_time_filter:", nb_time_filter, "time_stride:", time_stride, "seq_len:", seq_len, "node_num:", node_num, "d_model:", d_model, "d_k:", d_k, "d_v:", d_v, "n_head:", n_head)
 
 
     def forward(self, x, res_att):
         bs, node_num, num_of_features, seq_len = x.shape
+        
+        print("DSTAGNN_block input shape:", x.shape)
 
         # TAt
         if num_of_features == 1:
             TEmx = self.EmbedT(x, bs)
         else:
             TEmx = x.permute(0, 2, 3, 1)
+        print("DSTAGNN_block input shape:", TEmx.shape)
         TATout, re_At = self.TAt(TEmx, TEmx, TEmx, None, res_att)
 
         x_TAt = self.pre_conv(TATout.permute(0, 2, 3, 1))[:, :, :, -1].permute(0, 2, 1)
@@ -114,7 +119,9 @@ class DSTAGNN_block(nn.Module):
         if num_of_features == 1:
             x_residual = self.residual_conv(x.permute(0, 2, 1, 3))
         else:
-            x_residual = x.permute(0, 2, 1, 3)
+            x_residual = torch.zeros_like(time_conv_output)#x.permute(0, 2, 1, 3)
+            
+        print(x_residual.shape, time_conv_output.shape)
 
         x_residual = self.ln(F.relu(x_residual + time_conv_output).permute(0, 3, 2, 1)).permute(0, 2, 3, 1)
         return x_residual, re_At
@@ -133,10 +140,15 @@ class MultiHeadAttention(nn.Module):
         self.W_K = nn.Linear(d_model, d_k * n_head, bias=False)
         self.W_V = nn.Linear(d_model, d_v * n_head, bias=False)
         self.fc = nn.Linear(n_head * d_v, d_model, bias=False)
+        
+        print("MultiHeadAttention d_model:", d_model, "d_k:", d_k, "d_v:", d_v, "n_head:", n_head, "num_of_d:", num_of_d)
 
 
     def forward(self, input_Q, input_K, input_V, attn_mask, res_att):
         residual, bs = input_Q, input_Q.size(0)
+        
+        print("MultiHeadAttention input_Q shape:", input_Q.shape, "input_K shape:", input_K.shape, "input_V shape:", input_V.shape)
+        
         Q = self.W_Q(input_Q).view(bs, self.num_of_d, -1, self.n_head, self.d_k).transpose(2, 3)
         K = self.W_K(input_K).view(bs, self.num_of_d, -1, self.n_head, self.d_k).transpose(2, 3)
         V = self.W_V(input_V).view(bs, self.num_of_d, -1, self.n_head, self.d_v).transpose(2, 3)
