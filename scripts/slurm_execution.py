@@ -178,13 +178,13 @@ def ablation_dsn_embed_dim(dsn_embed_dims):
 
 def ablation_gcn_layers(gcn_layers):
     mask_iter = 0
-    for mask_name in [None, 'tr_drop_050','point_missing_075']: 
+    for mask_name in ['point_missing_075']:  #[None, 'tr_drop_050','point_missing_075']: 
         model_name = 'DSGNN'
 
         for gcn_layer in gcn_layers:
             additional_cmd_str = f' --gcn_layers {gcn_layer}'
 
-            create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100= False, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_gcn_layers --training_timeout_min 600', gpu_selection= 'V100')
+            create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100= False, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_gcn_layers_v2 --training_timeout_min 600', gpu_selection= 'V100')
 
 
 def ablation_concat_queries():
@@ -202,11 +202,11 @@ def ablation_repulsion_loss():
     mask_iter = 0
     for mask_name in [None, 'tr_drop_050','point_missing_075']:
         model_name = 'DSGNN'
-        for repulsion_margin in [0.0] :
-            for repulsion_loss_weight in [0.0]:
+        for repulsion_margin in [0.001] :
+            for repulsion_loss_weight in [0.0, 1.0]:
                 additional_cmd_str = f' --dsn_div_weight {repulsion_loss_weight} --dsn_div_margin {repulsion_margin}'
 
-                create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100= False, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_repulsion_loss_v2 --training_timeout_min 600 --n_hid 64 --gcn_layers 2 --dropout 0.1 --n_context_emb 64 --additional_loss_weight 0')
+                create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100= False, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_repulsion_loss_v3 --training_timeout_min 600 --n_hid 64 --gcn_layers 2 --dropout 0.1 --n_context_emb 64 --additional_loss_weight 0')
                 
 def ablation_dropout(dropout_rates):
     mask_iter = 0
@@ -220,13 +220,13 @@ def ablation_dropout(dropout_rates):
             
 def ablation_hidden_dim():
     mask_iter = 1
-    # for mask_name in [None, 'tr_drop_050', 'tr_drop_075','point_missing_075']:
-    for mask_name in ['point_missing_075']:
+    for mask_name in ['point_missing_075', 'tr_drop_075',]: #[None, 'tr_drop_050', 'point_missing_075', 'tr_drop_075',]:
+    # for mask_name in ['point_missing_075']:
         model_name = 'DSGNN'
         for n_hid in [16, 32, 64, 128]:
             additional_cmd_str = f' --n_hid {n_hid}'
 
-            command = create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=False, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_hidden_dim --training_timeout_min 600 --gcn_layers 2 --dropout 0.1 --n_context_emb 64 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001', gpu_selection= 'V100', job_name_suffix= f'n_hid_{n_hid}_ablation')
+            command = create_slurm_job(model_name=model_name, mask_name=mask_name, mask_iter=mask_iter, gpu_h100=False, additional_cmd_str=additional_cmd_str + f' --use_metadata True --input_dim {META_DATA_FEATURES[DATASET]} --wandb_tags ablation_hidden_dim_v2 --training_timeout_min 600 --gcn_layers 2 --dropout 0.1 --n_context_emb 64 --additional_loss_weight 0 --dsn_div_weight 1 --dsn_div_margin 0.001', gpu_selection= 'V100', job_name_suffix= f'n_hid_{n_hid}_ablation')
             
 
 
@@ -240,7 +240,7 @@ def dsgnn_test():
 
 def ablation_static_prefilter_mode():
     mask_iter = 0
-    for mask_name in [None, 'tr_drop_050', 'tr_drop_075','point_missing_075']:
+    for mask_name in ['point_missing_075']:#[None, 'tr_drop_050', 'tr_drop_075','point_missing_075']:
         model_name = 'DSGNN'
         
         dsn_number_options ={

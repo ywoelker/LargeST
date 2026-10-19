@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from src.utils.metrics import masked_mape, masked_mae
 from src.utils.metrics import masked_rmse
 from src.utils.metrics import compute_all_metrics
+import os
 
 
 class DSGNN_Engine(BaseEngine):
@@ -209,6 +210,32 @@ class DSGNN_Engine(BaseEngine):
 
 
         return evaluation_results
+    
+    def calc_metric_per_sensor(self, preds, labels, mask_value):
+        """
+        Calculate metrics per sensor and log them to wandb.
+        """
+        num_sensors = preds.shape[2]
+        sensor_metrics = {}
+        for sensor_idx in range(num_sensors):
+            sensor_pred = preds[:, :, sensor_idx]
+            sensor_label = labels[:, :, sensor_idx]
+
+            mae, mape, rmse = compute_all_metrics(sensor_pred, sensor_label, mask_value)
+            sensor_metrics[f'sensor_{sensor_idx}'] = {
+                'mae': mae,
+                'mape': mape,
+                'rmse': rmse
+            }
+        import json
+        with open(os.path.join(self._save_path, 'per_sensor_metrics.json'), 'w') as f:
+            json.dump(sensor_metrics, f)
+            
+        print(f"Per-sensor metrics saved to {os.path.join(self._save_path, 'per_sensor_metrics.json')}")
+        print("Per-sensor metrics:")
+        for sensor, metrics in sensor_metrics.items():
+            print(f"{sensor}: MAE={metrics['mae']:.4f}, MAPE={metrics['mape']:.4f}, RMSE={metrics['rmse']:.4f}")
+    
         
 
     def evaluate_custom(self, mode) -> tuple:
@@ -251,6 +278,7 @@ class DSGNN_Engine(BaseEngine):
 
         preds = torch.cat(preds, dim=0)
         labels = torch.cat(labels, dim=0)
+        
 
         # handle the precision issue when performing inverse transform to label
         mask_value = self.mask_value(labels)
@@ -258,6 +286,7 @@ class DSGNN_Engine(BaseEngine):
         print('Check mask value for evaluation: ', mask_value)
 
         print((labels == mask_value).sum())
+        
 
         if mode == 'val':
             # self.log_val_obs_augmented_cosine_heatmap(epoch=self.epoch + 1, log_every=1, max_contexts=500)
@@ -271,6 +300,9 @@ class DSGNN_Engine(BaseEngine):
             test_mape = []
             test_rmse = []
             print('Check mask value', mask_value)
+            
+            self.calc_metric_per_sensor(preds, labels, mask_value)
+            
 
             for i in range(self.model.horizon):
                 res = compute_all_metrics(preds[:,i,:], labels[:,i,:], mask_value)

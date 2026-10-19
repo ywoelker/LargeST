@@ -40,6 +40,8 @@ def get_public_config():
 
     parser.add_argument('--train_data_percentage', type=float, default=1.0, help='Percentage of training data to use (between 0 and 1)')
     parser.add_argument('--training_timeout_min', type=int, default=None, help='Timeout for the training phase in minutes. If None or 0, no timeout is implied.')
+    
+    parser.add_argument('--load_eval_checkpoint', type=str, default=None, help='Path to a checkpoint to load for evaluation. If None, no checkpoint is loaded.')
 
 
     
@@ -53,4 +55,7 @@ def get_public_config():
                        help='Weights & Biases entity (username or team)')
     parser.add_argument('--wandb_tags', type=str, nargs='+', default=[],
                        help='Tags for the wandb run')
+    
+    
+    parser.add_argument('--general_output_parent', type=str, default=None, help='General output directory for results. If not specified, defaults to the local directory')
     return parser

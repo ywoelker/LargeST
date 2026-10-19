@@ -40,6 +40,7 @@ class BaseEngine():
         self._wandb_logger = wandb_logger
         self._training_timeout_min = training_timeout_min
         self.trainable_model = trainable_model 
+        self.epoch = 0
 
         self.label_mask_value = self._scaler.transform(torch.tensor([0.0]).to(dtype = torch.float32, device = self._device))[0]
         self._logger.info('The number of parameters: {}'.format(self.model.param_num())) 
@@ -197,6 +198,18 @@ class BaseEngine():
             self._iter_cnt += 1
         return np.mean(train_loss), np.mean(train_mape), np.mean(train_rmse), extra_logs_acc
 
+    def mem_stats(self, prefix, device=None):
+        if not torch.cuda.is_available():
+            return {}
+        
+        d = torch.cuda.current_device()
+        free, total = torch.cuda.mem_get_info(d)
+        
+        return {
+            f"{prefix}/peak_alloc_MiB":    torch.cuda.max_memory_allocated(d) / 2**20,  
+            f"{prefix}/peak_reserved_MiB": torch.cuda.max_memory_reserved(d)  / 2**20,
+            f"{prefix}/proc_total_MiB":    (total - free) / 2**20,  # incl. CUDA context
+        }
 
     def train(self):
         self._logger.info('Start training!')
@@ -207,6 +220,7 @@ class BaseEngine():
         t0 = time.time()
 
         for self.epoch in range(self._max_epochs):
+            torch.cuda.reset_peak_memory_stats()
             t1 = time.time()
             mtrain_loss, mtrain_mape, mtrain_rmse, train_extra_logs = self.train_batch()            
             t2 = time.time()
@@ -218,12 +232,14 @@ class BaseEngine():
                 'train/mape': mtrain_mape,
                 'train/rmse': mtrain_rmse,
                 'train/time_per_epoch': t2 - t1,
+                **self.mem_stats('train', self._device)
                 }
                 for k, v_list in train_extra_logs.items():
                     train_log[f'train/{k}'] = float(np.mean(v_list))
                 self._wandb_logger.log_metrics(train_log, step=self.epoch+1)
 
 
+            torch.cuda.reset_peak_memory_stats()
             v1 = time.time()
             mvalid_loss, mvalid_mape, mvalid_rmse = self.evaluate('val')
             v2 = time.time()
@@ -243,6 +259,7 @@ class BaseEngine():
                     'val/rmse': mvalid_rmse,
                     'val/time': v2 - v1,
                     'lr': cur_lr,
+                    **self.mem_stats('val', self._device),
                     'epoch': self.epoch + 1
                 }, step=self.epoch+1)
                 
@@ -277,7 +294,7 @@ class BaseEngine():
         
         self._logger.info('Benchmark inference time: {:.4f}s +- {:.4f}s'.format(benchmark_results[0], benchmark_results[1]))
         
-
+        self._wandb_logger.summary({"peak_train_mem_MiB": torch.cuda.max_memory_allocated() / 2**20})
 
     def evaluate(self, mode) -> tuple:
         if mode == 'test' and self.trainable_model:
@@ -314,6 +331,7 @@ class BaseEngine():
         print('Check mask value for evaluation: ', mask_value)
 
         print((labels == mask_value).sum())
+        
 
         if mode == 'val':
             mae, mape, rmse = compute_all_metrics(preds, labels, mask_value, label_mask = label_masks)
@@ -622,7 +640,7 @@ class BaseEngine():
      
      
                 v1 = time.time()
-                pred, label, _ = self.forward(X, label, isTrain=False, query_node=query_nodes[batch_i])
+                pred, label, _ = self.forward(X, label, isTrain=False, query_node=None)
                 
                 v2 = time.time()
                 inference_time_numbers.append(v2 - v1)

@@ -194,7 +194,7 @@ def main():
                         max_epochs=args.max_epochs,
                         static_prefilter = static_assignment,
                         patience=args.patience,
-                        log_dir=log_dir,
+                        log_dir=log_dir if args.load_eval_checkpoint is None else args.load_eval_checkpoint,
                         logger=logger,
                         seed=args.seed,
                         wandb_logger=wandb_logger,
